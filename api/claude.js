@@ -1,6 +1,5 @@
 // api/claude.js  ← Vercel Serverless Function
-// This runs on the SERVER so your Anthropic API key is never exposed to the browser.
-// Vercel automatically picks up any file in /api as a serverless endpoint.
+// Anthropic API key stays server-side — never exposed to the browser.
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -13,6 +12,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "messages is required" });
   }
 
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
+  }
+
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -22,19 +25,20 @@ export default async function handler(req, res) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-opus-4-5",
         max_tokens,
         system,
         messages,
       }),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      const err = await response.text();
-      return res.status(response.status).json({ error: err });
+      console.error("Anthropic error:", JSON.stringify(data));
+      return res.status(response.status).json({ error: data });
     }
 
-    const data = await response.json();
     return res.status(200).json(data);
   } catch (err) {
     console.error("Claude API error:", err);
