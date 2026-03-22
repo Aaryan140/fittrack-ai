@@ -69,7 +69,12 @@ export async function parseWorkout({ description, goal, weight }) {
     messages: [{ role: "user", content: `Parse this workout. Goal: "${goal}", weight: ${weight}kg. Workout: "${description}". Return ONLY JSON.` }],
     max_tokens: 600,
   });
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch(e) {
+    console.error("parseWorkout JSON.parse failed. Raw text:", text);
+    throw new Error("Could not parse AI response: " + e.message);
+  }
 }
 
 // ── Generate personalised tomorrow plan ───────────────────────
@@ -95,5 +100,10 @@ Return ONLY JSON with personalised suggestions for tomorrow.`,
     }],
     max_tokens: 1200,
   });
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch(e) {
+    console.error("generateInsights JSON.parse failed. Raw text:", text.substring(0, 500));
+    throw new Error("Could not parse AI response: " + e.message);
+  }
 }
