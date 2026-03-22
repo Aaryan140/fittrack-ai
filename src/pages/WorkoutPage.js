@@ -11,58 +11,37 @@ export default function WorkoutPage() {
   const { profile } = useAuth();
   const { updateDay } = useDay(getTodayKey());
 
-  const [mode, setMode]       = useState("voice"); // "voice" | "type"
-  const [input, setInput]     = useState("");
-  const [parsing, setParsing] = useState(false);
-  const [result, setResult]   = useState(null);
-  const [error, setError]     = useState("");
-  const [saved, setSaved]     = useState(false);
-
-  // ── Voice state ───────────────────────────────────────────
-  const [voiceState, setVoiceState] = useState("idle"); // idle | listening | processing | done
+  const [mode, setMode]         = useState("voice");
+  const [input, setInput]       = useState("");
+  const [parsing, setParsing]   = useState(false);
+  const [result, setResult]     = useState(null);
+  const [error, setError]       = useState("");
+  const [saved, setSaved]       = useState(false);
+  const [voiceState, setVoiceState] = useState("idle");
   const [transcript, setTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    return () => {
-      if (recognitionRef.current) recognitionRef.current.abort();
-    };
+    return () => { if (recognitionRef.current) recognitionRef.current.abort(); };
   }, []);
 
   const startListening = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setVoiceError("Voice recognition not supported. Use Chrome on Android/desktop.");
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setVoiceError("Voice not supported. Use Chrome on Android or desktop.");
       return;
     }
-    setVoiceError("");
-    setTranscript("");
-    setResult(null);
-    setError("");
-
-    const recognition = new SpeechRecognition();
+    setVoiceError(""); setTranscript(""); setResult(null); setError("");
+    const recognition = new SR();
     recognition.lang = "en-US";
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
     recognitionRef.current = recognition;
-
-    recognition.onstart = () => setVoiceState("listening");
-
-    recognition.onresult = (e) => {
-      const text = Array.from(e.results).map(r => r[0].transcript).join(" ");
-      setTranscript(text);
-    };
-
-    recognition.onend = () => {
-      setVoiceState("done");
-    };
-
-    recognition.onerror = (e) => {
-      setVoiceError("Could not hear you. Please try again.");
-      setVoiceState("idle");
-    };
-
+    recognition.onstart  = () => setVoiceState("listening");
+    recognition.onresult = (e) => setTranscript(Array.from(e.results).map(r => r[0].transcript).join(" "));
+    recognition.onend    = () => setVoiceState("done");
+    recognition.onerror  = () => { setVoiceError("Could not hear you. Please try again."); setVoiceState("idle"); };
     recognition.start();
   };
 
@@ -72,19 +51,14 @@ export default function WorkoutPage() {
     setTimeout(() => setVoiceState("done"), 500);
   };
 
-    setInput(transcript);
-    setMode("type");
-  };
-
-  // ── Parse workout ─────────────────────────────────────────
-  const parse = async () => {
-    const text = input.trim();
-    if (!text) return;
+  const parse = async (text) => {
+    const desc = (text || input).trim();
+    if (!desc) return;
     setParsing(true); setError(""); setResult(null);
     try {
       const res = await parseWorkout({
-        description: text,
-        goal: GOAL_LABELS[profile?.goal] || "Maintain Weight",
+        description: desc,
+        goal:   GOAL_LABELS[profile?.goal] || "Maintain Weight",
         weight: profile?.weight || 70,
       });
       setResult(res);
@@ -100,7 +74,7 @@ export default function WorkoutPage() {
       ...day,
       workouts: [...(day.workouts || []), {
         ...result,
-        raw: input,
+        raw:  input || transcript,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       }],
     }));
@@ -155,8 +129,8 @@ export default function WorkoutPage() {
               onClick={voiceState === "listening" ? stopListening : startListening}
               style={{
                 width: 72, height: 72, borderRadius: "50%", border: "none",
-                background: micColor, cursor: "pointer", display: "flex",
-                alignItems: "center", justifyContent: "center", margin: "0 auto",
+                background: micColor, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto",
                 animation: voiceState === "listening" ? "pulsering 1s ease infinite" : "none",
                 transition: "background 0.2s",
               }}>
@@ -167,17 +141,15 @@ export default function WorkoutPage() {
                 <line x1="10" y1="26" x2="18" y2="26" stroke="white" strokeWidth="2" strokeLinecap="round"/>
               </svg>
             </button>
-
             <div style={{ fontSize: 12, color: "#475569", marginTop: 10 }}>
-              {voiceState === "idle" && "Tap mic to start speaking"}
-              {voiceState === "listening" && "Listening... tap again to stop"}
+              {voiceState === "idle"       && "Tap mic to start speaking"}
+              {voiceState === "listening"  && "Listening... tap again to stop"}
               {voiceState === "processing" && "Processing..."}
-              {voiceState === "done" && "Got it!"}
+              {voiceState === "done"       && transcript && "Got it — parse below"}
             </div>
-
             {voiceState === "listening" && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3, height: 36, margin: "10px 0" }}>
-                {[...Array(7)].map((_, i) => <div key={i} className="wbar" style={{ animationDelay: `${[0,.1,.2,.3,.2,.1,0][i]}s` }} />)}
+                {[...Array(7)].map((_, i) => <div key={i} className="wbar" />)}
               </div>
             )}
           </div>
@@ -192,12 +164,8 @@ export default function WorkoutPage() {
 
           {voiceState === "done" && transcript && (
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => { setInput(transcript); setTimeout(() => parse(), 50); }} fullWidth>
-                🤖 Parse this workout
-              </Btn>
-              <Btn onClick={() => { setTranscript(""); setVoiceState("idle"); }} variant="ghost">
-                Retry
-              </Btn>
+              <Btn onClick={() => parse(transcript)} fullWidth>🤖 Parse this workout</Btn>
+              <Btn onClick={() => { setTranscript(""); setVoiceState("idle"); }} variant="ghost">Retry</Btn>
             </div>
           )}
 
@@ -241,14 +209,14 @@ export default function WorkoutPage() {
               </button>
             ))}
           </div>
-          <Btn onClick={parse} disabled={parsing || !input.trim()} fullWidth>
+          <Btn onClick={() => parse(input)} disabled={parsing || !input.trim()} fullWidth>
             {parsing ? "Parsing..." : "🤖 Parse with AI"}
           </Btn>
         </Card>
       )}
 
       {parsing && <div style={{ marginBottom: 14 }}><Spinner label="Calculating your effort..." /></div>}
-      {error && <div style={{ color: "#f87171", fontSize: 13, marginBottom: 14 }}>{error}</div>}
+      {error   && <div style={{ color: "#f87171", fontSize: 13, marginBottom: 14 }}>{error}</div>}
 
       {/* Result */}
       {result && (
