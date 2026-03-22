@@ -1,9 +1,9 @@
 // src/pages/ActivityPage.js
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useDay, getTodayKey } from "../hooks/useSupabase";
 import { saveSession, getTodaySession } from "../lib/activityStore";
-import { Card, Btn, Spinner } from "../components/UI";
+import { Card, Btn } from "../components/UI";
 
 // ── constants ──────────────────────────────────────────────────
 const STEP_THRESHOLD  = 11;   // m/s² peak needed to count a step

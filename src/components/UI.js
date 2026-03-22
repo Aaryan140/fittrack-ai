@@ -1,5 +1,5 @@
 // src/components/UI.js
-import { useState } from "react";
+
 
 // ── MacroBar ───────────────────────────────────────────────────
 export function MacroBar({ label, value, max, color }) {
