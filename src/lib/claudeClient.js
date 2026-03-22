@@ -14,12 +14,21 @@ async function callClaude({ system, messages, max_tokens = 1000 }) {
   const data = await res.json();
   const raw = data.content?.map((b) => b.text || "").join("") || "";
   
-  // Extract JSON from response — Gemini sometimes wraps it in ```json blocks or adds text
-  const jsonMatch = raw.match(/```json\s*([\s\S]*?)\s*```/) ||
-                    raw.match(/```\s*([\s\S]*?)\s*```/) ||
-                    raw.match(/(\{[\s\S]*\})/);
+  // Extract JSON — handle markdown blocks, prefixes, or raw JSON
+  let cleaned = raw.trim();
   
-  const cleaned = jsonMatch ? jsonMatch[1] : raw;
+  // Remove ```json ... ``` or ``` ... ``` wrappers
+  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenceMatch) {
+    cleaned = fenceMatch[1].trim();
+  } else {
+    // Find the first { and last } to extract pure JSON
+    const start = cleaned.indexOf('{');
+    const end   = cleaned.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      cleaned = cleaned.substring(start, end + 1);
+    }
+  }
   return cleaned.trim();
 }
 
