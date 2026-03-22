@@ -1,6 +1,5 @@
 // src/lib/claudeClient.js
-// All calls go through /api/claude (Vercel serverless) so the API key
-// is never exposed in the browser bundle.
+// All AI calls go through /api/claude (Vercel serverless)
 
 async function callClaude({ system, messages, max_tokens = 1000 }) {
   const res = await fetch("/api/claude", {
@@ -8,23 +7,33 @@ async function callClaude({ system, messages, max_tokens = 1000 }) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ system, messages, max_tokens }),
   });
-  if (!res.ok) throw new Error(`Claude API error: ${res.status}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `API error: ${res.status}`);
+  }
   const data = await res.json();
-  const text = data.content?.map((b) => b.text || "").join("") || "{}";
-  return text.replace(/```json|```/g, "").trim();
+  const raw = data.content?.map((b) => b.text || "").join("") || "";
+  
+  // Extract JSON from response — Gemini sometimes wraps it in ```json blocks or adds text
+  const jsonMatch = raw.match(/```json\s*([\s\S]*?)\s*```/) ||
+                    raw.match(/```\s*([\s\S]*?)\s*```/) ||
+                    raw.match(/(\{[\s\S]*\})/);
+  
+  const cleaned = jsonMatch ? jsonMatch[1] : raw;
+  return cleaned.trim();
 }
 
 // ── Analyze a food photo ───────────────────────────────────────
 export async function analyzeFood({ base64, mimeType, goal, targets }) {
-  const system = `You are a professional nutritionist AI. Analyze food images and return ONLY a JSON object, no markdown:
+  const system = `You are a professional nutritionist AI. Analyze food images and return ONLY a valid JSON object with no extra text, no markdown, no backticks:
 {
   "meal_name": "string",
   "description": "brief description",
   "macros": { "calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number },
   "ingredients": ["string"],
-  "health_score": number (1-10),
+  "health_score": number between 1 and 10,
   "notes": "string",
-  "goal_alignment": "how this fits or doesn't fit the user's goal"
+  "goal_alignment": "how this fits the user goal"
 }`;
 
   const text = await callClaude({
@@ -33,7 +42,7 @@ export async function analyzeFood({ base64, mimeType, goal, targets }) {
       role: "user",
       content: [
         { type: "image", source: { type: "base64", media_type: mimeType, data: base64 } },
-        { type: "text", text: `Analyze this meal. My goal: ${goal}. Daily targets: ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat.` },
+        { type: "text", text: `Analyze this meal. My goal: ${goal}. Daily targets: ${targets.calories} kcal, ${targets.protein}g protein, ${targets.carbs}g carbs, ${targets.fat}g fat. Return ONLY JSON.` },
       ],
     }],
     max_tokens: 800,
@@ -43,12 +52,12 @@ export async function analyzeFood({ base64, mimeType, goal, targets }) {
 
 // ── Parse a free-text workout description ─────────────────────
 export async function parseWorkout({ description, goal, weight }) {
-  const system = `You are a fitness coach AI. Parse workout descriptions and return ONLY JSON, no markdown:
-{ "workout_name": "string", "duration_min": number, "calories_burned": number, "muscle_groups": ["string"], "intensity": "Low|Medium|High", "summary": "string" }`;
+  const system = `You are a fitness coach AI. Parse workout descriptions and return ONLY a valid JSON object with no extra text, no markdown, no backticks:
+{ "workout_name": "string", "duration_min": number, "calories_burned": number, "muscle_groups": ["string"], "intensity": "Low or Medium or High", "summary": "string" }`;
 
   const text = await callClaude({
     system,
-    messages: [{ role: "user", content: `Parse this workout for someone with goal "${goal}", weight ${weight}kg: ${description}` }],
+    messages: [{ role: "user", content: `Parse this workout. Goal: "${goal}", weight: ${weight}kg. Workout: "${description}". Return ONLY JSON.` }],
     max_tokens: 600,
   });
   return JSON.parse(text);
@@ -56,7 +65,7 @@ export async function parseWorkout({ description, goal, weight }) {
 
 // ── Generate personalised tomorrow plan ───────────────────────
 export async function generateInsights({ profile, todayData, history, targets }) {
-  const system = `You are an expert nutritionist and fitness coach. Return ONLY JSON, no markdown:
+  const system = `You are an expert nutritionist and fitness coach. Return ONLY a valid JSON object with no extra text, no markdown, no backticks:
 {
   "tomorrow_meals": [{ "meal": "string", "reason": "string", "approx_macros": "string" }],
   "tomorrow_workout": { "type": "string", "duration": "string", "details": "string" },
@@ -73,7 +82,7 @@ export async function generateInsights({ profile, todayData, history, targets })
       content: `Profile: ${JSON.stringify({ goal: profile.goal, activityLevel: profile.activityLevel, weight: profile.weight, targets })}.
 Today: ${JSON.stringify({ macros: todayData.macros, meals: todayData.meals?.map((m) => m.meal_name), workouts: todayData.workouts?.map((w) => w.workout_name) })}.
 7-day history: ${JSON.stringify(history.slice(0, 7).map((d) => ({ date: d.date, macros: d.macros, meals: d.meals?.length, workouts: d.workouts?.length })))}.
-Give specific, personalised suggestions for tomorrow.`,
+Return ONLY JSON with personalised suggestions for tomorrow.`,
     }],
     max_tokens: 1200,
   });
