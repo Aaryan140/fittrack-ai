@@ -1,6 +1,6 @@
 // src/pages/DashboardPage.js
 import { useAuth } from "../context/AuthContext";
-import { useDay, getTodayKey } from "../hooks/useFirestore";
+import { useDay, getTodayKey } from "../hooks/useSupabase";
 import { calcTargets } from "../lib/nutrition";
 import { MacroBar, Card, CalorieRing, TagBadge } from "../components/UI";
 

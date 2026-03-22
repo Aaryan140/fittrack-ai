@@ -1,7 +1,7 @@
 // src/pages/LogMealPage.js
 import { useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useDay, getTodayKey } from "../hooks/useFirestore";
+import { useDay, getTodayKey } from "../hooks/useSupabase";
 import { analyzeFood } from "../lib/claudeClient";
 import { calcTargets, GOAL_LABELS } from "../lib/nutrition";
 import { Card, Btn, Spinner, TagBadge } from "../components/UI";

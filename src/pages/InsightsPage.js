@@ -1,7 +1,7 @@
 // src/pages/InsightsPage.js
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useDay, useHistory, getTodayKey } from "../hooks/useFirestore";
+import { useDay, useHistory, getTodayKey } from "../hooks/useSupabase";
 import { generateInsights } from "../lib/claudeClient";
 import { calcTargets, GOAL_LABELS } from "../lib/nutrition";
 import { Card, Btn, Spinner } from "../components/UI";

@@ -108,9 +108,9 @@ if (app.includes('ActivityPage') && app.includes('/activity')) {
 
 // ── TEST 8: Required lib files exist ──────────────────────
 [
-  'src/lib/firebase.js','src/lib/claudeClient.js',
+  'src/lib/supabase.js','src/lib/claudeClient.js',
   'src/lib/nutrition.js','src/lib/activityStore.js',
-  'src/context/AuthContext.js','src/hooks/useFirestore.js',
+  'src/context/AuthContext.js','src/hooks/useSupabase.js',
   'src/components/UI.js','api/claude.js','public/sw.js',
   'firestore.rules','.env.example','vercel.json'
 ].forEach(f => {
@@ -150,8 +150,8 @@ try {
 
 // ── TEST 12: env example has all required vars ─────────────
 const envEx = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
-['ANTHROPIC_API_KEY','REACT_APP_FIREBASE_API_KEY','REACT_APP_FIREBASE_PROJECT_ID',
- 'REACT_APP_FIREBASE_AUTH_DOMAIN','REACT_APP_FIREBASE_STORAGE_BUCKET'].forEach(v => {
+['ANTHROPIC_API_KEY','REACT_APP_SUPABASE_URL','REACT_APP_SUPABASE_ANON_KEY',
+ 'REACT_APP_SUPABASE_URL','REACT_APP_SUPABASE_ANON_KEY'].forEach(v => {
   if (envEx.includes(v)) {
     passed.push('T12 .env.example has: ' + v);
   } else {

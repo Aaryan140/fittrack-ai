@@ -1,5 +1,5 @@
 // src/pages/HistoryPage.js
-import { useHistory, getTodayKey } from "../hooks/useFirestore";
+import { useHistory, getTodayKey } from "../hooks/useSupabase";
 import { useAuth } from "../context/AuthContext";
 import { calcTargets } from "../lib/nutrition";
 import { Card, CalorieRing } from "../components/UI";

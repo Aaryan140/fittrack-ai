@@ -1,7 +1,7 @@
 // src/pages/ActivityPage.js
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useDay, getTodayKey } from "../hooks/useFirestore";
+import { useDay, getTodayKey } from "../hooks/useSupabase";
 import { saveSession, getTodaySession } from "../lib/activityStore";
 import { Card, Btn, Spinner } from "../components/UI";
 

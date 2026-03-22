@@ -1,7 +1,7 @@
 // src/pages/WorkoutPage.js
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { useDay, getTodayKey } from "../hooks/useFirestore";
+import { useDay, getTodayKey } from "../hooks/useSupabase";
 import { parseWorkout } from "../lib/claudeClient";
 import { GOAL_LABELS } from "../lib/nutrition";
 import { Card, Btn, Spinner, TagBadge } from "../components/UI";

@@ -1,15 +1,6 @@
 // src/context/AuthContext.js
 import { createContext, useContext, useEffect, useState } from "react";
-import {
-  onAuthStateChanged,
-  signInWithPopup,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  updateProfile,
-} from "firebase/auth";
-import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db, googleProvider } from "../lib/firebase";
+import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
 
@@ -18,72 +9,105 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // ── listen to Firebase auth state ──────────────────────────
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        const snap = await getDoc(doc(db, "users", firebaseUser.uid));
-        setProfile(snap.exists() ? snap.data() : null);
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchProfile(session.user.id);
+      else setLoading(false);
     });
-    return unsub;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setUser(session?.user ?? null);
+        if (session?.user) await fetchProfile(session.user.id);
+        else { setProfile(null); setLoading(false); }
+      }
+    );
+    return () => subscription.unsubscribe();
   }, []);
 
-  // ── Google Sign-In ──────────────────────────────────────────
+  const fetchProfile = async (uid) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", uid).single();
+    setProfile(data || null);
+    setLoading(false);
+  };
+
   const signInWithGoogle = async () => {
-    const result = await signInWithPopup(auth, googleProvider);
-    await ensureUserDoc(result.user);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) throw error;
   };
 
-  // ── Email/Password Sign-Up ──────────────────────────────────
   const signUpWithEmail = async (email, password, displayName) => {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(result.user, { displayName });
-    await ensureUserDoc(result.user);
+    const { data, error } = await supabase.auth.signUp({
+      email, password,
+      options: { data: { display_name: displayName } },
+    });
+    if (error) throw error;
+    if (data.user) await ensureProfile(data.user, displayName);
   };
 
-  // ── Email/Password Sign-In ──────────────────────────────────
   const signInWithEmail = async (email, password) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
   };
 
-  // ── Sign Out ────────────────────────────────────────────────
-  const logout = () => signOut(auth);
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+  };
 
-  // ── Create Firestore user doc on first login ────────────────
-  const ensureUserDoc = async (firebaseUser) => {
-    const ref  = doc(db, "users", firebaseUser.uid);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      await setDoc(ref, {
-        uid:         firebaseUser.uid,
-        email:       firebaseUser.email,
-        displayName: firebaseUser.displayName || "",
-        photoURL:    firebaseUser.photoURL    || "",
-        setupDone:   false,
-        createdAt:   serverTimestamp(),
+  const ensureProfile = async (supaUser, displayName) => {
+    const { data: existing } = await supabase.from("profiles").select("id").eq("id", supaUser.id).single();
+    if (!existing) {
+      await supabase.from("profiles").insert({
+        id:           supaUser.id,
+        email:        supaUser.email,
+        display_name: displayName || supaUser.user_metadata?.full_name || "",
+        photo_url:    supaUser.user_metadata?.avatar_url || "",
+        setup_done:   false,
+        created_at:   new Date().toISOString(),
       });
     }
-    const updated = await getDoc(ref);
-    setProfile(updated.data());
+    await fetchProfile(supaUser.id);
   };
 
-  // ── Save / update fitness profile ──────────────────────────
   const saveProfile = async (data) => {
     if (!user) return;
-    const ref = doc(db, "users", user.uid);
-    await setDoc(ref, { ...data, updatedAt: serverTimestamp() }, { merge: true });
-    setProfile((p) => ({ ...p, ...data }));
+    const row = {
+      id:             user.id,
+      setup_done:     data.setupDone     !== undefined ? data.setupDone     : profile?.setup_done,
+      display_name:   data.displayName   !== undefined ? data.displayName   : profile?.display_name,
+      goal:           data.goal          !== undefined ? data.goal          : profile?.goal,
+      activity_level: data.activityLevel !== undefined ? data.activityLevel : profile?.activity_level,
+      age:            data.age           !== undefined ? data.age           : profile?.age,
+      weight:         data.weight        !== undefined ? data.weight        : profile?.weight,
+      height:         data.height        !== undefined ? data.height        : profile?.height,
+      sex:            data.sex           !== undefined ? data.sex           : profile?.sex,
+      step_goal:      data.stepGoal      !== undefined ? data.stepGoal      : profile?.step_goal,
+      updated_at:     new Date().toISOString(),
+    };
+    const { error } = await supabase.from("profiles").upsert(row);
+    if (error) throw error;
+    setProfile(p => ({ ...p, ...row }));
   };
 
+  const normalisedProfile = profile ? {
+    ...profile,
+    setupDone:     profile.setup_done,
+    displayName:   profile.display_name,
+    activityLevel: profile.activity_level,
+    stepGoal:      profile.step_goal,
+    photoURL:      profile.photo_url,
+  } : null;
+
   return (
-    <AuthContext.Provider
-      value={{ user, profile, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, logout, saveProfile }}
-    >
+    <AuthContext.Provider value={{
+      user, profile: normalisedProfile, loading,
+      signInWithGoogle, signInWithEmail, signUpWithEmail, logout, saveProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   );
