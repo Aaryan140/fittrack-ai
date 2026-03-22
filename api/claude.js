@@ -1,6 +1,5 @@
-// api/gemini.js → kept as claude.js so no frontend changes needed
-// Uses Google Gemini 1.5 Flash — free tier, no credit card needed
-// Free tier: 15 RPM, 1M tokens/day
+// api/claude.js — Vercel Serverless Function
+// Uses Google Gemini — free tier, no credit card needed
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -18,77 +17,75 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Convert Anthropic message format to Gemini format
-    const geminiContents = messages.map(msg => {
+    // Convert Anthropic format → Gemini format
+    const geminiContents = [];
+
+    // Add system prompt as first exchange
+    if (system) {
+      geminiContents.push({ role: "user", parts: [{ text: `INSTRUCTIONS: ${system}` }] });
+      geminiContents.push({ role: "model", parts: [{ text: "Understood." }] });
+    }
+
+    // Add messages
+    for (const msg of messages) {
       if (typeof msg.content === "string") {
-        return {
+        geminiContents.push({
           role: msg.role === "assistant" ? "model" : "user",
           parts: [{ text: msg.content }]
-        };
-      }
-      // Handle array content (text + images)
-      const parts = msg.content.map(part => {
-        if (part.type === "text") {
-          return { text: part.text };
-        }
-        if (part.type === "image") {
-          return {
-            inline_data: {
-              mime_type: part.source.media_type,
-              data: part.source.data
-            }
+        });
+      } else {
+        // Array content (text + images)
+        const parts = msg.content.map(part => {
+          if (part.type === "text") return { text: part.text };
+          if (part.type === "image") return {
+            inline_data: { mime_type: part.source.media_type, data: part.source.data }
           };
-        }
-        return { text: "" };
-      });
-      return {
-        role: msg.role === "assistant" ? "model" : "user",
-        parts
-      };
-    });
-
-    // Add system prompt as first user message if provided
-    if (system) {
-      geminiContents.unshift({
-        role: "user",
-        parts: [{ text: `SYSTEM INSTRUCTIONS: ${system}` }]
-      });
-      geminiContents.splice(1, 0, {
-        role: "model",
-        parts: [{ text: "Understood. I will follow these instructions." }]
-      });
-    }
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: geminiContents,
-          generationConfig: {
-            maxOutputTokens: max_tokens,
-            temperature: 0.7,
-          }
-        })
+          return { text: "" };
+        });
+        geminiContents.push({
+          role: msg.role === "assistant" ? "model" : "user",
+          parts
+        });
       }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Gemini error:", JSON.stringify(data));
-      return res.status(response.status).json({ error: data });
     }
 
-    // Convert Gemini response to Anthropic format so frontend works unchanged
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    return res.status(200).json({
-      content: [{ type: "text", text }]
-    });
+    // Try models in order until one works
+    const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+    let lastError = null;
+
+    for (const model of models) {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: geminiContents,
+            generationConfig: { maxOutputTokens: max_tokens, temperature: 0.7 }
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        // Return in Anthropic format so frontend works unchanged
+        return res.status(200).json({ content: [{ type: "text", text }] });
+      }
+
+      lastError = data;
+      // If rate limited or not found, try next model
+      if (data.error?.code === 429 || data.error?.code === 404) continue;
+      // Other errors — return immediately
+      break;
+    }
+
+    console.error("All Gemini models failed:", JSON.stringify(lastError));
+    return res.status(500).json({ error: "AI service temporarily unavailable. Please try again in a moment." });
 
   } catch (err) {
-    console.error("Gemini API error:", err);
+    console.error("API error:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 }
