@@ -17,6 +17,7 @@ export default function WorkoutPage() {
   const [result, setResult]     = useState(null);
   const [error, setError]       = useState("");
   const [saved, setSaved]       = useState(false);
+  const [saving, setSaving]     = useState(false);
   const [voiceState, setVoiceState] = useState("idle");
   const [transcript, setTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
@@ -69,17 +70,24 @@ export default function WorkoutPage() {
   };
 
   const save = async () => {
-    if (!result) return;
-    await updateDay(day => ({
-      ...day,
-      workouts: [...(day.workouts || []), {
-        ...result,
-        raw:  input || transcript,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }],
-    }));
-    setSaved(true);
-    setInput(""); setResult(null); setTranscript(""); setVoiceState("idle");
+    if (!result || saving) return;
+    setSaving(true);
+    try {
+      await updateDay(day => ({
+        ...day,
+        workouts: [...(day.workouts || []), {
+          ...result,
+          raw:  input || transcript,
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        }],
+      }));
+      setSaved(true);
+      setInput(""); setResult(null); setTranscript(""); setVoiceState("idle");
+    } catch(e) {
+      console.error("Save failed:", e);
+      setError("Could not save workout. Please try again.");
+    }
+    setSaving(false);
   };
 
   const EXAMPLES = [
@@ -238,7 +246,7 @@ export default function WorkoutPage() {
             {result.muscle_groups?.map(m => <TagBadge key={m} label={m} color="#6366f1" />)}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <Btn onClick={save} variant="success" fullWidth>✓ Save Workout</Btn>
+            <Btn onClick={save} disabled={saving} variant="success" fullWidth>{saving ? "Saving..." : "✓ Save Workout"}</Btn>
             <Btn onClick={() => setResult(null)} variant="ghost">Discard</Btn>
           </div>
         </Card>

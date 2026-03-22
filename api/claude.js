@@ -1,5 +1,5 @@
 // api/claude.js — Vercel Serverless Function
-// Uses Google Gemini — free tier, no credit card needed
+// Uses Google Gemini free tier
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -8,84 +8,79 @@ export default async function handler(req, res) {
 
   const { messages, system, max_tokens = 1000 } = req.body;
 
-  if (!messages) {
-    return res.status(400).json({ error: "messages is required" });
+  if (!messages) return res.status(400).json({ error: "messages is required" });
+  if (!process.env.GEMINI_API_KEY) return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+
+  // Convert Anthropic format to Gemini format
+  const geminiContents = [];
+
+  if (system) {
+    geminiContents.push({ role: "user",  parts: [{ text: `INSTRUCTIONS (follow exactly): ${system}` }] });
+    geminiContents.push({ role: "model", parts: [{ text: "Understood. I will follow these instructions exactly and return only valid JSON." }] });
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+  for (const msg of messages) {
+    const role = msg.role === "assistant" ? "model" : "user";
+    if (typeof msg.content === "string") {
+      geminiContents.push({ role, parts: [{ text: msg.content }] });
+    } else {
+      const parts = (msg.content || []).map(part => {
+        if (part.type === "text")  return { text: part.text };
+        if (part.type === "image") return { inline_data: { mime_type: part.source.media_type, data: part.source.data } };
+        return { text: "" };
+      });
+      geminiContents.push({ role, parts });
+    }
   }
 
-  try {
-    // Convert Anthropic format → Gemini format
-    const geminiContents = [];
+  // Try models with retry on rate limit
+  const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+  
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: geminiContents,
+              generationConfig: { maxOutputTokens: max_tokens, temperature: 0.4 },
+              safetySettings: [
+                { category: "HARM_CATEGORY_HARASSMENT",        threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_HATE_SPEECH",       threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+              ],
+            })
+          }
+        );
 
-    // Add system prompt as first exchange
-    if (system) {
-      geminiContents.push({ role: "user", parts: [{ text: `INSTRUCTIONS: ${system}` }] });
-      geminiContents.push({ role: "model", parts: [{ text: "Understood." }] });
-    }
+        const data = await response.json();
 
-    // Add messages
-    for (const msg of messages) {
-      if (typeof msg.content === "string") {
-        geminiContents.push({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts: [{ text: msg.content }]
-        });
-      } else {
-        // Array content (text + images)
-        const parts = msg.content.map(part => {
-          if (part.type === "text") return { text: part.text };
-          if (part.type === "image") return {
-            inline_data: { mime_type: part.source.media_type, data: part.source.data }
-          };
-          return { text: "" };
-        });
-        geminiContents.push({
-          role: msg.role === "assistant" ? "model" : "user",
-          parts
-        });
-      }
-    }
-
-    // Try models in order until one works
-    const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
-    let lastError = null;
-
-    for (const model of models) {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: geminiContents,
-            generationConfig: { maxOutputTokens: max_tokens, temperature: 0.7 }
-          })
+        if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          const text = data.candidates[0].content.parts[0].text;
+          return res.status(200).json({ content: [{ type: "text", text }] });
         }
-      );
 
-      const data = await response.json();
+        // Rate limited — wait and retry
+        if (data.error?.code === 429) {
+          await new Promise(r => setTimeout(r, 2000));
+          continue;
+        }
 
-      if (response.ok) {
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        // Return in Anthropic format so frontend works unchanged
-        return res.status(200).json({ content: [{ type: "text", text }] });
+        // Model not found — try next
+        if (data.error?.code === 404) break;
+
+        console.error(`Gemini ${model} attempt ${attempt} error:`, JSON.stringify(data));
+        break;
+
+      } catch (err) {
+        console.error(`Gemini ${model} attempt ${attempt} exception:`, err.message);
       }
-
-      lastError = data;
-      // If rate limited or not found, try next model
-      if (data.error?.code === 429 || data.error?.code === 404) continue;
-      // Other errors — return immediately
-      break;
     }
-
-    console.error("All Gemini models failed:", JSON.stringify(lastError));
-    return res.status(500).json({ error: "AI service temporarily unavailable. Please try again in a moment." });
-
-  } catch (err) {
-    console.error("API error:", err);
-    return res.status(500).json({ error: "Internal server error" });
   }
+
+  return res.status(503).json({ error: "AI service temporarily unavailable. Please try again in a moment." });
 }
