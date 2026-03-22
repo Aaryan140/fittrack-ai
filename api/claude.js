@@ -61,7 +61,11 @@ export default async function handler(req, res) {
 
         if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
           const text = data.candidates[0].content.parts[0].text;
+          console.log("Gemini raw response:", text.substring(0, 300));
           return res.status(200).json({ content: [{ type: "text", text }] });
+        }
+        if (response.ok) {
+          console.log("Gemini ok but no text:", JSON.stringify(data).substring(0, 300));
         }
 
         // Rate limited — wait and retry
