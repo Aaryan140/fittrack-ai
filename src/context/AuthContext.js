@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 // src/context/AuthContext.js
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
@@ -9,7 +10,36 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchProfile = async (supaUser) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
+    if (data) {
+      setProfile(data);
+      setLoading(false);
+    } else {
+      await ensureProfile(supaUser, supaUser.user_metadata?.display_name || supaUser.email?.split("@")[0] || "");
+    }
+  };
+
+  const ensureProfile = async (supaUser, displayName) => {
+    const name = displayName || supaUser.user_metadata?.display_name || supaUser.user_metadata?.full_name || supaUser.email?.split("@")[0] || "User";
+    const { data: existing } = await supabase.from("profiles").select("id").eq("id", supaUser.id).single();
+    if (!existing) {
+      const { data } = await supabase.from("profiles").insert({
+        id:           supaUser.id,
+        email:        supaUser.email,
+        display_name: name,
+        photo_url:    supaUser.user_metadata?.avatar_url || "",
+        setup_done:   false,
+        created_at:   new Date().toISOString(),
+      }).select().single();
+      if (data) setProfile(data);
+    } else {
+      const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
+      if (data) setProfile(data);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -25,17 +55,6 @@ export function AuthProvider({ children }) {
     );
     return () => subscription.unsubscribe();
   }, []);
-
-  const fetchProfile = async (supaUser) => {
-    const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
-    if (data) {
-      setProfile(data);
-    } else {
-      // Profile doesn't exist yet — create it
-      await ensureProfile(supaUser, supaUser.user_metadata?.display_name || supaUser.email?.split("@")[0] || "");
-    }
-    setLoading(false);
-  };
 
   const signInWithGoogle = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -65,26 +84,6 @@ export function AuthProvider({ children }) {
     setProfile(null);
   };
 
-  const ensureProfile = async (supaUser, displayName) => {
-    const name = displayName || supaUser.user_metadata?.display_name || supaUser.user_metadata?.full_name || supaUser.email?.split("@")[0] || "User";
-    const { data: existing } = await supabase.from("profiles").select("id").eq("id", supaUser.id).single();
-    if (!existing) {
-      const { data } = await supabase.from("profiles").insert({
-        id:           supaUser.id,
-        email:        supaUser.email,
-        display_name: name,
-        photo_url:    supaUser.user_metadata?.avatar_url || "",
-        setup_done:   false,
-        created_at:   new Date().toISOString(),
-      }).select().single();
-      if (data) setProfile(data);
-    } else {
-      const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
-      if (data) setProfile(data);
-    }
-    setLoading(false);
-  };
-
   const saveProfile = async (data) => {
     if (!user) return;
     const row = {
@@ -105,7 +104,6 @@ export function AuthProvider({ children }) {
     setProfile(p => ({ ...p, ...row }));
   };
 
-  // Normalise snake_case DB fields to camelCase for the app
   const normalisedProfile = profile ? {
     ...profile,
     setupDone:     profile.setup_done,
