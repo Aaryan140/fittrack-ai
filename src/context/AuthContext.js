@@ -12,22 +12,27 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
+      if (session?.user) fetchProfile(session.user);
       else setLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         setUser(session?.user ?? null);
-        if (session?.user) await fetchProfile(session.user.id);
+        if (session?.user) await fetchProfile(session.user);
         else { setProfile(null); setLoading(false); }
       }
     );
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (uid) => {
-    const { data } = await supabase.from("profiles").select("*").eq("id", uid).single();
-    setProfile(data || null);
+  const fetchProfile = async (supaUser) => {
+    const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
+    if (data) {
+      setProfile(data);
+    } else {
+      // Profile doesn't exist yet — create it
+      await ensureProfile(supaUser, supaUser.user_metadata?.display_name || supaUser.email?.split("@")[0] || "");
+    }
     setLoading(false);
   };
 
@@ -60,18 +65,23 @@ export function AuthProvider({ children }) {
   };
 
   const ensureProfile = async (supaUser, displayName) => {
+    const name = displayName || supaUser.user_metadata?.display_name || supaUser.user_metadata?.full_name || supaUser.email?.split("@")[0] || "User";
     const { data: existing } = await supabase.from("profiles").select("id").eq("id", supaUser.id).single();
     if (!existing) {
-      await supabase.from("profiles").insert({
+      const { data } = await supabase.from("profiles").insert({
         id:           supaUser.id,
         email:        supaUser.email,
-        display_name: displayName || supaUser.user_metadata?.full_name || "",
+        display_name: name,
         photo_url:    supaUser.user_metadata?.avatar_url || "",
         setup_done:   false,
         created_at:   new Date().toISOString(),
-      });
+      }).select().single();
+      if (data) setProfile(data);
+    } else {
+      const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
+      if (data) setProfile(data);
     }
-    await fetchProfile(supaUser.id);
+    setLoading(false);
   };
 
   const saveProfile = async (data) => {
@@ -94,10 +104,11 @@ export function AuthProvider({ children }) {
     setProfile(p => ({ ...p, ...row }));
   };
 
+  // Normalise snake_case DB fields to camelCase for the app
   const normalisedProfile = profile ? {
     ...profile,
     setupDone:     profile.setup_done,
-    displayName:   profile.display_name,
+    displayName:   profile.display_name || user?.email?.split("@")[0] || "User",
     activityLevel: profile.activity_level,
     stepGoal:      profile.step_goal,
     photoURL:      profile.photo_url,
