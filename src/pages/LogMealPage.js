@@ -6,6 +6,9 @@ import { analyzeFood } from "../lib/claudeClient";
 import { calcTargets, GOAL_LABELS } from "../lib/nutrition";
 import { Card, Btn, Spinner, TagBadge } from "../components/UI";
 
+const MAX_IMAGE_DIMENSION = 1280;
+const MAX_ANALYSIS_IMAGE_BYTES = 900 * 1024;
+
 export default function LogMealPage() {
   const { profile } = useAuth();
   const { updateDay } = useDay(getTodayKey());
@@ -14,6 +17,7 @@ export default function LogMealPage() {
   const [imageFile, setImageFile]       = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [base64, setBase64]             = useState(null);
+  const [imageMimeType, setImageMimeType] = useState("image/jpeg");
   const [analyzing, setAnalyzing]       = useState(false);
   const [result, setResult]             = useState(null);
   const [error, setError]               = useState("");
@@ -21,16 +25,23 @@ export default function LogMealPage() {
   const [saving, setSaving]             = useState(false);
   const fileRef = useRef();
 
-  const handleFile = (e) => {
+  const handleFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setImageFile(file); setResult(null); setError(""); setSaved(false);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setImagePreview(ev.target.result);
-      setBase64(ev.target.result.split(",")[1]);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const processed = await prepareImageForAnalysis(file);
+      setImagePreview(processed.dataUrl);
+      setBase64(processed.base64);
+      setImageMimeType(processed.mimeType);
+    } catch (err) {
+      console.error("Image preparation failed:", err);
+      setImagePreview(null);
+      setBase64(null);
+      setImageMimeType("image/jpeg");
+      setError("That photo is too large or could not be processed. Try another photo.");
+      if (fileRef.current) fileRef.current.value = "";
+    }
   };
 
   const analyze = async () => {
@@ -41,7 +52,7 @@ export default function LogMealPage() {
     setAnalyzing(true); setError(""); setResult(null);
     try {
       const res = await analyzeFood({
-        base64, mimeType: imageFile.type || "image/jpeg",
+        base64, mimeType: imageMimeType || "image/jpeg",
         goal: GOAL_LABELS[profile?.goal] || "Maintain Weight", targets,
       });
       setResult(res);
@@ -73,7 +84,7 @@ export default function LogMealPage() {
         },
       }));
       setSaved(true);
-      setImageFile(null); setImagePreview(null); setBase64(null); setResult(null);
+      setImageFile(null); setImagePreview(null); setBase64(null); setImageMimeType("image/jpeg"); setResult(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (e) {
       console.error("Save failed:", e);
@@ -147,7 +158,7 @@ export default function LogMealPage() {
             <Btn onClick={save} disabled={saving} variant="success" fullWidth>
               {saving ? "Saving..." : "✓ Add to Today's Log"}
             </Btn>
-            <Btn onClick={() => { setResult(null); setImagePreview(null); setImageFile(null); }} variant="ghost">Discard</Btn>
+            <Btn onClick={() => { setResult(null); setImagePreview(null); setImageFile(null); setBase64(null); setImageMimeType("image/jpeg"); }} variant="ghost">Discard</Btn>
           </div>
         </Card>
       )}
@@ -159,4 +170,74 @@ export default function LogMealPage() {
       )}
     </div>
   );
+}
+
+async function prepareImageForAnalysis(file) {
+  const image = await loadImage(file);
+  let width = image.naturalWidth || image.width;
+  let height = image.naturalHeight || image.height;
+  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(width, height));
+
+  width = Math.max(1, Math.round(width * scale));
+  height = Math.max(1, Math.round(height * scale));
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) throw new Error("Canvas is not supported");
+
+  canvas.width = width;
+  canvas.height = height;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(image, 0, 0, width, height);
+
+  let dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+
+  for (const quality of [0.72, 0.62, 0.52, 0.42]) {
+    if (dataUrlLengthToBytes(dataUrl) <= MAX_ANALYSIS_IMAGE_BYTES) break;
+    dataUrl = canvas.toDataURL("image/jpeg", quality);
+  }
+
+  while (dataUrlLengthToBytes(dataUrl) > MAX_ANALYSIS_IMAGE_BYTES && canvas.width > 480 && canvas.height > 480) {
+    width = Math.max(480, Math.round(canvas.width * 0.8));
+    height = Math.max(480, Math.round(canvas.height * 0.8));
+    canvas.width = width;
+    canvas.height = height;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(image, 0, 0, width, height);
+    dataUrl = canvas.toDataURL("image/jpeg", 0.52);
+  }
+
+  if (dataUrlLengthToBytes(dataUrl) > MAX_ANALYSIS_IMAGE_BYTES) {
+    throw new Error("Compressed image is still too large");
+  }
+
+  return {
+    dataUrl,
+    base64: dataUrl.split(",")[1],
+    mimeType: "image/jpeg",
+  };
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Could not load image"));
+    };
+    img.src = objectUrl;
+  });
+}
+
+function dataUrlLengthToBytes(dataUrl) {
+  const base64Part = dataUrl.split(",")[1] || "";
+  const padding = base64Part.endsWith("==") ? 2 : base64Part.endsWith("=") ? 1 : 0;
+  return Math.floor((base64Part.length * 3) / 4) - padding;
 }

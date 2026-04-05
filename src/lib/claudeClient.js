@@ -9,6 +9,9 @@ async function callClaude({ system, messages, max_tokens = 1000 }) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    if (res.status === 413) {
+      throw new Error("That photo is too large. Please try a smaller image.");
+    }
     throw new Error(err.error || `API error: ${res.status}`);
   }
   const data = await res.json();
