@@ -24,10 +24,7 @@ export default function LogMealPage() {
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    setImageFile(file);
-    setResult(null);
-    setError("");
-    setSaved(false);
+    setImageFile(file); setResult(null); setError(""); setSaved(false);
     const reader = new FileReader();
     reader.onload = (ev) => {
       setImagePreview(ev.target.result);
@@ -40,10 +37,8 @@ export default function LogMealPage() {
     setAnalyzing(true); setError(""); setResult(null);
     try {
       const res = await analyzeFood({
-        base64,
-        mimeType: imageFile.type || "image/jpeg",
-        goal:    GOAL_LABELS[profile?.goal] || "Maintain Weight",
-        targets,
+        base64, mimeType: imageFile.type || "image/jpeg",
+        goal: GOAL_LABELS[profile?.goal] || "Maintain Weight", targets,
       });
       setResult(res);
     } catch (e) {
@@ -60,7 +55,7 @@ export default function LogMealPage() {
         ...day,
         meals: [...(day.meals || []), {
           ...result,
-          // base64 image intentionally excluded — too large for Supabase rows
+          // image NOT saved — base64 too large, causes mobile save failures
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         }],
         macros: {
@@ -88,14 +83,9 @@ export default function LogMealPage() {
       <Card style={{ marginBottom: 16 }}>
         <div
           onClick={() => fileRef.current?.click()}
-          onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { const ev = { target: { files: [f] } }; handleFile(ev); } }}
+          onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile({ target: { files: [f] } }); }}
           onDragOver={e => e.preventDefault()}
-          style={{
-            border: "2px dashed #334155", borderRadius: 16,
-            padding: imagePreview ? 12 : 48,
-            textAlign: "center", cursor: "pointer",
-            transition: "border-color 0.2s", marginBottom: 16,
-          }}
+          style={{ border: "2px dashed #334155", borderRadius: 16, padding: imagePreview ? 12 : 48, textAlign: "center", cursor: "pointer", transition: "border-color 0.2s", marginBottom: 16 }}
           onMouseEnter={e => e.currentTarget.style.borderColor = "#6366f1"}
           onMouseLeave={e => e.currentTarget.style.borderColor = "#334155"}
         >
@@ -110,7 +100,6 @@ export default function LogMealPage() {
           )}
         </div>
         <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: "none" }} capture="environment" />
-
         {imagePreview && !result && (
           <Btn onClick={analyze} disabled={analyzing} fullWidth>
             {analyzing ? "Analyzing..." : "🔍 Analyze with AI"}
@@ -126,9 +115,7 @@ export default function LogMealPage() {
             <h2 style={{ margin: 0, fontSize: 20, color: "#f1f5f9" }}>{result.meal_name}</h2>
             <TagBadge label={`${result.health_score}/10`} color={result.health_score >= 7 ? "#4ade80" : result.health_score >= 5 ? "#fb923c" : "#f87171"} />
           </div>
-
           <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 16px" }}>{result.description}</p>
-
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 16 }}>
             {[
               ["Calories", result.macros?.calories, "kcal", "#818cf8"],
@@ -144,15 +131,10 @@ export default function LogMealPage() {
               </div>
             ))}
           </div>
-
           <div style={{ background: "#1e293b", borderRadius: 12, padding: 12, marginBottom: 14, fontSize: 13, color: "#94a3b8" }}>
             💡 <span style={{ color: "#a5b4fc", fontWeight: 500 }}>Goal fit: </span>{result.goal_alignment}
           </div>
-
-          {result.notes && (
-            <div style={{ fontSize: 13, color: "#475569", marginBottom: 14 }}>📝 {result.notes}</div>
-          )}
-
+          {result.notes && <div style={{ fontSize: 13, color: "#475569", marginBottom: 14 }}>📝 {result.notes}</div>}
           <div style={{ display: "flex", gap: 10 }}>
             <Btn onClick={save} disabled={saving} variant="success" fullWidth>
               {saving ? "Saving..." : "✓ Add to Today's Log"}

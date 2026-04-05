@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
-const STAY_LOGGED_IN_KEY = "fittrack_stay_logged_in";
+const STAY_KEY = "fittrack_stay_logged_in";
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
@@ -19,30 +19,21 @@ export function AuthProvider({ children }) {
         .eq("id", supaUser.id)
         .single();
 
-      if (data) {
-        setProfile(data);
-        return;
-      }
+      if (data) { setProfile(data); return; }
 
       if (error?.code === "PGRST116" || !data) {
         const name = supaUser.user_metadata?.display_name
           || supaUser.user_metadata?.full_name
           || supaUser.email?.split("@")[0]
           || "User";
-
         const { data: newProfile } = await supabase
           .from("profiles")
           .upsert({
-            id:           supaUser.id,
-            email:        supaUser.email,
-            display_name: name,
-            photo_url:    supaUser.user_metadata?.avatar_url || "",
-            setup_done:   false,
-            created_at:   new Date().toISOString(),
+            id: supaUser.id, email: supaUser.email,
+            display_name: name, photo_url: supaUser.user_metadata?.avatar_url || "",
+            setup_done: false, created_at: new Date().toISOString(),
           }, { onConflict: "id" })
-          .select()
-          .single();
-
+          .select().single();
         if (newProfile) setProfile(newProfile);
       }
     } catch (err) {
@@ -56,53 +47,34 @@ export function AuthProvider({ children }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log("Auth event:", event);
-
         if (event === "SIGNED_OUT") {
-          setUser(null);
-          setProfile(null);
-          setLoading(false);
-          return;
+          setUser(null); setProfile(null); setLoading(false); return;
         }
-
         if (event === "INITIAL_SESSION") {
-          if (session?.user) {
-            setUser(session.user);
-            await fetchProfile(session.user);
-          } else {
-            setLoading(false);
-          }
+          if (session?.user) { setUser(session.user); await fetchProfile(session.user); }
+          else setLoading(false);
           return;
         }
-
         if (event === "SIGNED_IN") {
-          if (session?.user) {
-            setUser(session.user);
-            await fetchProfile(session.user);
-          }
+          if (session?.user) { setUser(session.user); await fetchProfile(session.user); }
           return;
         }
-
-        if (session?.user) {
-          setUser(session.user);
-        }
+        if (session?.user) setUser(session.user);
       }
     );
-
     return () => subscription.unsubscribe();
   }, []);
 
   const signInWithGoogle = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
+      provider: "google", options: { redirectTo: window.location.origin },
     });
     if (error) throw error;
   };
 
   const signUpWithEmail = async (email, password, displayName) => {
     const { data, error } = await supabase.auth.signUp({
-      email, password,
-      options: { data: { display_name: displayName } },
+      email, password, options: { data: { display_name: displayName } },
     });
     if (error) throw error;
     return data;
@@ -114,10 +86,9 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
-    localStorage.removeItem(STAY_LOGGED_IN_KEY);
+    localStorage.removeItem(STAY_KEY);
     await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
+    setUser(null); setProfile(null);
     window.location.href = "/";
   };
 

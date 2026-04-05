@@ -22,7 +22,7 @@ const NAV = [
   { to: "/profile",  icon: "👤", label: "Profile"  },
 ];
 
-const STAY_LOGGED_IN_KEY = "fittrack_stay_logged_in";
+const STAY_KEY = "fittrack_stay_logged_in";
 
 function Spinner() {
   return (
@@ -41,7 +41,10 @@ function StayLoggedInPrompt({ onYes, onNo }) {
       display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: "'DM Sans', 'Segoe UI', sans-serif", padding: 20,
     }}>
-      <style>{`@keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }`}</style>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+      `}</style>
       <div style={{ width: "100%", maxWidth: 380, animation: "fadeUp 0.4s ease", textAlign: "center" }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>⚡</div>
         <h2 style={{ color: "#f1f5f9", fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>Stay logged in?</h2>
@@ -53,16 +56,12 @@ function StayLoggedInPrompt({ onYes, onNo }) {
             width: "100%", padding: "14px 20px", borderRadius: 12, border: "none",
             background: "linear-gradient(135deg, #6366f1, #818cf8)", color: "#fff",
             fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-          }}>
-            Yes, keep me logged in
-          </button>
+          }}>Yes, keep me logged in</button>
           <button onClick={onNo} style={{
             width: "100%", padding: "14px 20px", borderRadius: 12,
             border: "1px solid #334155", background: "transparent", color: "#94a3b8",
             fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
-          }}>
-            No, sign me out
-          </button>
+          }}>No, sign me out</button>
         </div>
       </div>
     </div>
@@ -71,69 +70,53 @@ function StayLoggedInPrompt({ onYes, onNo }) {
 
 function AppShell() {
   const { user, profile, loading, logout } = useAuth();
-  const [timedOut, setTimedOut]         = useState(false);
-  const [stayChoice, setStayChoice]     = useState(null); // null | "yes" | "no"
-  const [choiceChecked, setChoiceChecked] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
+  const [askStay, setAskStay]   = useState(false);
+  const [ready, setReady]       = useState(false);
 
-  // Safety valve: never spin more than 8 seconds
+  // Safety valve — max 8 seconds spinner
   useEffect(() => {
     if (!loading) { setTimedOut(false); return; }
     const t = setTimeout(() => setTimedOut(true), 8000);
     return () => clearTimeout(t);
   }, [loading]);
 
-  // Once auth resolves, check if we need to ask "stay logged in?"
+  // Once auth resolves, decide what to show
   useEffect(() => {
-    if (loading) return;
-    const saved = localStorage.getItem(STAY_LOGGED_IN_KEY);
-    if (user && saved === null) {
-      // User is logged in but we haven't asked yet → ask
-      setStayChoice("ask");
-    } else if (user && saved === "yes") {
-      setStayChoice("yes");
-    } else if (!user) {
-      setStayChoice("no");
-      localStorage.removeItem(STAY_LOGGED_IN_KEY);
+    if (loading && !timedOut) return; // still loading, wait
+    if (!user) { setReady(true); return; } // no user, show login
+    const choice = localStorage.getItem(STAY_KEY);
+    if (choice === null) {
+      setAskStay(true); // never asked before, show prompt
+    } else if (choice === "no") {
+      logout(); // they said no previously, sign out
     }
-    setChoiceChecked(true);
-  }, [loading, user]);
+    setReady(true);
+  }, [loading, timedOut, user]);
 
-  // Still loading auth
-  if (loading && !timedOut) return <Spinner />;
+  // Still initialising
+  if (!ready) return <Spinner />;
 
-  // Auth resolved but we haven't evaluated choice yet
-  if (!choiceChecked) return <Spinner />;
-
-  // No user at all → login
+  // No user → login
   if (!user) return <LoginPage />;
 
-  // User exists but we need to ask "stay logged in?"
-  if (stayChoice === "ask") {
+  // Ask stay logged in
+  if (askStay) {
     return (
       <StayLoggedInPrompt
-        onYes={() => {
-          localStorage.setItem(STAY_LOGGED_IN_KEY, "yes");
-          setStayChoice("yes");
-        }}
-        onNo={() => {
-          localStorage.setItem(STAY_LOGGED_IN_KEY, "no");
-          setStayChoice("no");
-          logout();
-        }}
+        onYes={() => { localStorage.setItem(STAY_KEY, "yes"); setAskStay(false); }}
+        onNo={() => { localStorage.setItem(STAY_KEY, "no"); setAskStay(false); logout(); }}
       />
     );
   }
 
-  // User chose "no" → sign out → show login
-  if (stayChoice === "no") return <LoginPage />;
-
-  // Profile still loading
+  // Profile still fetching
   if (!profile && !timedOut) return <Spinner />;
 
-  // Profile loaded but setup not done
+  // Setup not complete
   if (profile && !profile.setupDone) return <SetupPage />;
 
-  // Fully authenticated → main app
+  // All good — show app
   return (
     <div style={{ minHeight: "100vh", background: "#020617", fontFamily: "'DM Sans', 'Segoe UI', sans-serif", paddingBottom: 72 }}>
       <style>{`
@@ -148,7 +131,6 @@ function AppShell() {
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 99px; }
       `}</style>
 
-      {/* Header */}
       <div style={{ background: "#0a0f1e", borderBottom: "1px solid #0f172a", padding: "13px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 20 }}>⚡</span>
@@ -157,7 +139,6 @@ function AppShell() {
         <span style={{ fontSize: 12, color: "#475569" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
       </div>
 
-      {/* Pages */}
       <div style={{ maxWidth: 600, margin: "0 auto", padding: "18px 16px" }}>
         <Routes>
           <Route path="/"          element={<DashboardPage />} />
@@ -171,7 +152,6 @@ function AppShell() {
         </Routes>
       </div>
 
-      {/* Bottom nav */}
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#0a0f1e", borderTop: "1px solid #0f172a", display: "flex", zIndex: 100, overflowX: "auto" }}>
         {NAV.map(({ to, icon, label }) => (
           <NavLink key={to} to={to} end={to === "/"}
