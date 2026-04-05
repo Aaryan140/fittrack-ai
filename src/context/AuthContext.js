@@ -87,9 +87,23 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     localStorage.removeItem(STAY_KEY);
-    await supabase.auth.signOut();
-    setUser(null); setProfile(null);
-    window.location.href = "/";
+
+    try {
+      await Promise.race([
+        supabase.auth.signOut(),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("Supabase sign-out timed out.")), 4000);
+        }),
+      ]);
+    } catch (error) {
+      console.warn("Supabase sign-out fallback:", error);
+    } finally {
+      clearSupabaseSession();
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
+      window.location.replace("/");
+    }
   };
 
   const saveProfile = async (data) => {
@@ -132,3 +146,16 @@ export function AuthProvider({ children }) {
 }
 
 export const useAuth = () => useContext(AuthContext);
+
+function clearSupabaseSession() {
+  const keysToRemove = [];
+
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith("sb-")) {
+      keysToRemove.push(key);
+    }
+  }
+
+  keysToRemove.forEach((key) => localStorage.removeItem(key));
+}
