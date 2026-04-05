@@ -124,7 +124,7 @@ if (app.includes('ActivityPage') && app.includes('/activity')) {
 
 // ── TEST 9: claude.js API proxy has auth check ─────────────
 const claudeApi = fs.readFileSync(path.join(ROOT, 'api/claude.js'), 'utf8');
-if (claudeApi.includes('ANTHROPIC_API_KEY') && claudeApi.includes('process.env')) {
+if (claudeApi.includes('GEMINI_API_KEY') && claudeApi.includes('process.env')) {
   passed.push('T9 api/claude.js uses env var for API key (never hardcoded)');
 } else {
   errors.push('T9 api/claude.js NOT using env var for API key');
@@ -150,7 +150,7 @@ try {
 
 // ── TEST 12: env example has all required vars ─────────────
 const envEx = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8');
-['ANTHROPIC_API_KEY','REACT_APP_SUPABASE_URL','REACT_APP_SUPABASE_ANON_KEY',
+['GEMINI_API_KEY','REACT_APP_SUPABASE_URL','REACT_APP_SUPABASE_ANON_KEY',
  'REACT_APP_SUPABASE_URL','REACT_APP_SUPABASE_ANON_KEY'].forEach(v => {
   if (envEx.includes(v)) {
     passed.push('T12 .env.example has: ' + v);
