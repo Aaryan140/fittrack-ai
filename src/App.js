@@ -92,7 +92,7 @@ function AppShell() {
       logout(); // they said no previously, sign out
     }
     setReady(true);
-  }, [loading, timedOut, user]);
+  }, [loading, timedOut, user, logout]);
 
   // Still initialising
   if (!ready) return <Spinner />;
