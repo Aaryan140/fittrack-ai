@@ -5,12 +5,24 @@ import { Btn, Input } from "../components/UI";
 
 export default function LoginPage() {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
-  const [mode, setMode]       = useState("login"); // "login" | "signup"
-  const [email, setEmail]     = useState("");
+  const [mode, setMode]         = useState("login"); // "login" | "signup"
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName]       = useState("");
-  const [error, setError]     = useState("");
-  const [loading, setLoading] = useState(false);
+  const [name, setName]         = useState("");
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+
+  // FIX: Removed Firebase-specific error stripping (this is Supabase, not Firebase).
+  // Supabase errors are already clean strings — no stripping needed.
+  const formatError = (e) => {
+    const msg = e?.message || "Something went wrong. Please try again.";
+    // Make common Supabase error messages more user-friendly
+    if (msg.includes("Invalid login credentials")) return "Incorrect email or password.";
+    if (msg.includes("Email not confirmed")) return "Please check your email and confirm your account first.";
+    if (msg.includes("User already registered")) return "An account with this email already exists. Try signing in.";
+    if (msg.includes("Password should be")) return "Password must be at least 6 characters.";
+    return msg;
+  };
 
   const handleEmail = async () => {
     setError(""); setLoading(true);
@@ -18,16 +30,23 @@ export default function LoginPage() {
       if (mode === "signup") await signUpWithEmail(email, password, name);
       else                   await signInWithEmail(email, password);
     } catch (e) {
-      setError(e.message.replace("Firebase: ", "").replace(/\(auth.*\)/, "").trim());
+      setError(formatError(e));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleGoogle = async () => {
     setError(""); setLoading(true);
-    try { await signInWithGoogle(); }
-    catch (e) { setError(e.message); }
-    setLoading(false);
+    try {
+      await signInWithGoogle();
+      // Note: loading stays true here intentionally — the page will redirect
+      // to Google and then back. We don't setLoading(false) so the button
+      // stays disabled during the OAuth redirect.
+    } catch (e) {
+      setError(formatError(e));
+      setLoading(false);
+    }
   };
 
   return (
@@ -91,7 +110,8 @@ export default function LoginPage() {
           <button onClick={handleGoogle} disabled={loading} style={{
             width: "100%", background: "#1e293b", border: "1px solid #334155",
             borderRadius: 12, padding: "12px 20px", color: "#f1f5f9",
-            fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+            fontSize: 14, fontWeight: 500, cursor: loading ? "not-allowed" : "pointer",
+            fontFamily: "inherit", opacity: loading ? 0.7 : 1,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
           }}>
             <svg width="18" height="18" viewBox="0 0 18 18">
@@ -100,7 +120,7 @@ export default function LoginPage() {
               <path fill="#FBBC05" d="M3.964 10.706c-.18-.54-.282-1.117-.282-1.706s.102-1.166.282-1.706V4.962H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.038l3.007-2.332z"/>
               <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.962L3.964 6.294C4.672 4.167 6.656 3.58 9 3.58z"/>
             </svg>
-            Continue with Google
+            {loading ? "Redirecting..." : "Continue with Google"}
           </button>
 
           <p style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: "#475569" }}>

@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 // src/context/AuthContext.js
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
@@ -10,49 +10,121 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // FIX: Guard against concurrent fetchProfile calls (race condition on OAuth).
+  // onAuthStateChange fires multiple times (SIGNED_IN + TOKEN_REFRESHED),
+  // so without this lock we'd hit Supabase twice simultaneously.
+  const fetchingRef = useRef(false);
+
   const fetchProfile = async (supaUser) => {
-    const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
-    if (data) {
-      setProfile(data);
+    if (fetchingRef.current) return; // already in flight, skip duplicate call
+    fetchingRef.current = true;
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", supaUser.id)
+        .single();
+
+      if (data) {
+        setProfile(data);
+      } else {
+        await ensureProfile(supaUser, supaUser.user_metadata?.display_name || supaUser.email?.split("@")[0] || "");
+      }
+    } catch (err) {
+      // FIX: Always resolve loading even on error, so app doesn't hang forever
+      console.error("fetchProfile error:", err);
+    } finally {
+      // FIX: Always set loading false, even if something throws
       setLoading(false);
-    } else {
-      await ensureProfile(supaUser, supaUser.user_metadata?.display_name || supaUser.email?.split("@")[0] || "");
+      fetchingRef.current = false;
     }
   };
 
   const ensureProfile = async (supaUser, displayName) => {
-    const name = displayName || supaUser.user_metadata?.display_name || supaUser.user_metadata?.full_name || supaUser.email?.split("@")[0] || "User";
-    const { data: existing } = await supabase.from("profiles").select("id").eq("id", supaUser.id).single();
-    if (!existing) {
-      const { data } = await supabase.from("profiles").insert({
-        id:           supaUser.id,
-        email:        supaUser.email,
-        display_name: name,
-        photo_url:    supaUser.user_metadata?.avatar_url || "",
-        setup_done:   false,
-        created_at:   new Date().toISOString(),
-      }).select().single();
-      if (data) setProfile(data);
-    } else {
-      const { data } = await supabase.from("profiles").select("*").eq("id", supaUser.id).single();
-      if (data) setProfile(data);
+    const name = displayName
+      || supaUser.user_metadata?.display_name
+      || supaUser.user_metadata?.full_name
+      || supaUser.email?.split("@")[0]
+      || "User";
+
+    try {
+      const { data: existing } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", supaUser.id)
+        .single();
+
+      if (!existing) {
+        const { data } = await supabase
+          .from("profiles")
+          .insert({
+            id:           supaUser.id,
+            email:        supaUser.email,
+            display_name: name,
+            photo_url:    supaUser.user_metadata?.avatar_url || "",
+            setup_done:   false,
+            created_at:   new Date().toISOString(),
+          })
+          .select()
+          .single();
+        if (data) setProfile(data);
+      } else {
+        const { data } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", supaUser.id)
+          .single();
+        if (data) setProfile(data);
+      }
+    } catch (err) {
+      // FIX: Don't let ensureProfile errors swallow the finally in fetchProfile
+      console.error("ensureProfile error:", err);
+      throw err; // re-throw so fetchProfile's finally still runs
     }
-    setLoading(false);
   };
 
   useEffect(() => {
+    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user);
-      else setLoading(false);
+      if (session?.user) {
+        fetchProfile(session.user);
+      } else {
+        setLoading(false);
+      }
     });
+
+    // FIX: Only react to meaningful auth events, not every token refresh.
+    // SIGNED_IN fires on OAuth callback and email login.
+    // SIGNED_OUT fires on logout.
+    // TOKEN_REFRESHED fires silently in background — we skip it to avoid
+    // the race condition that caused the double-fetch / infinite reload.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setUser(session?.user ?? null);
-        if (session?.user) await fetchProfile(session.user);
-        else { setProfile(null); setLoading(false); }
+      async (event, session) => {
+        if (event === "SIGNED_OUT") {
+          setUser(null);
+          setProfile(null);
+          setLoading(false);
+          fetchingRef.current = false;
+          return;
+        }
+
+        if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+          if (session?.user) {
+            setUser(session.user);
+            await fetchProfile(session.user);
+          }
+          return;
+        }
+
+        // TOKEN_REFRESHED and other events: just update user silently,
+        // don't re-fetch profile (this was causing the refresh loop)
+        if (session?.user) {
+          setUser(session.user);
+        }
       }
     );
+
     return () => subscription.unsubscribe();
   }, []);
 
