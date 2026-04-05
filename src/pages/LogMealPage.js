@@ -55,6 +55,7 @@ export default function LogMealPage() {
   const save = async () => {
     if (!result || saving) return;
     setSaving(true);
+    setError("");
     try {
       await updateDay(day => ({
         ...day,
@@ -73,11 +74,13 @@ export default function LogMealPage() {
       }));
       setSaved(true);
       setImageFile(null); setImagePreview(null); setBase64(null); setResult(null);
+      if (fileRef.current) fileRef.current.value = "";
     } catch (e) {
       console.error("Save failed:", e);
-      setError("Could not save meal. Please try again.");
+      setError(e?.message || "Could not save meal. Please try again.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (

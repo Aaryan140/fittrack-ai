@@ -72,6 +72,7 @@ export default function WorkoutPage() {
   const save = async () => {
     if (!result || saving) return;
     setSaving(true);
+    setError("");
     try {
       await updateDay(day => ({
         ...day,
@@ -85,9 +86,10 @@ export default function WorkoutPage() {
       setInput(""); setResult(null); setTranscript(""); setVoiceState("idle");
     } catch(e) {
       console.error("Save failed:", e);
-      setError("Could not save workout. Please try again.");
+      setError(e?.message || "Could not save workout. Please try again.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const EXAMPLES = [

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
+const DB_TIMEOUT_MS = 12000;
+
 export function getTodayKey() {
   return new Date().toISOString().split("T")[0];
 }
@@ -54,34 +56,37 @@ export function useDay(dateKey) {
 
     try {
       // First try upsert with onConflict
-      const { error } = await supabase.from("days").upsert(
-        {
-          user_id:    user.id,
-          date:       dateKey,
-          payload:    updated,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,date" }
+      const row = {
+        user_id:    user.id,
+        date:       dateKey,
+        payload:    updated,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await withTimeout(
+        supabase.from("days").upsert(row, { onConflict: "user_id,date" }),
+        "Saving data took too long. Please try again."
       );
 
       if (error) {
         // If upsert fails (e.g. no unique constraint), try insert then update
         console.warn("upsert failed, trying insert/update fallback:", error.message);
 
-        const { error: insertError } = await supabase.from("days").insert({
-          user_id:    user.id,
-          date:       dateKey,
-          payload:    updated,
-          updated_at: new Date().toISOString(),
-        });
+        const { error: insertError } = await withTimeout(
+          supabase.from("days").insert(row),
+          "Creating the daily log took too long. Please try again."
+        );
 
         if (insertError) {
           // Row exists, do a plain update
-          const { error: updateError } = await supabase
-            .from("days")
-            .update({ payload: updated, updated_at: new Date().toISOString() })
-            .eq("user_id", user.id)
-            .eq("date", dateKey);
+          const { error: updateError } = await withTimeout(
+            supabase
+              .from("days")
+              .update({ payload: updated, updated_at: new Date().toISOString() })
+              .eq("user_id", user.id)
+              .eq("date", dateKey),
+            "Updating the daily log took too long. Please try again."
+          );
 
           if (updateError) {
             // Revert optimistic update on real failure
@@ -129,4 +134,13 @@ export function useHistory(days = 14) {
   }, [user?.id, days]);
 
   return { history, loading };
+}
+
+function withTimeout(promise, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), DB_TIMEOUT_MS);
+    }),
+  ]);
 }
