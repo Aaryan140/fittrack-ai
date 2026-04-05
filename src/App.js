@@ -49,11 +49,11 @@ function AppShell() {
   // 2. No user (not logged in, or timed out before session loaded) → login
   if (!user) return <LoginPage />;
 
-  // 3. User exists but profile still loading (rare: user loaded fast, profile slow) → spinner
-  if (loading && !timedOut) return <Spinner />;
+// 3. Profile not yet fetched → keep spinning
+if (!profile && !timedOut) return <Spinner />;
 
-  // 4. User exists but hasn't completed setup → setup wizard
-  if (!profile?.setupDone) return <SetupPage />;
+// 4. User exists but hasn't completed setup → setup wizard
+if (profile && !profile.setupDone) return <SetupPage />;
 
   // 5. Fully authenticated → main app
   return (
