@@ -22,30 +22,40 @@ const NAV = [
   { to: "/profile",  icon: "👤", label: "Profile"  },
 ];
 
+function Spinner() {
+  return (
+    <div style={{ minHeight: "100vh", background: "#020617", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+      <div style={{ width: 32, height: 32, border: "3px solid #1e293b", borderTop: "3px solid #6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+      <style>{"@keyframes spin { to { transform: rotate(360deg); } }"}</style>
+      <p style={{ color: "#475569", fontSize: 13, margin: 0 }}>Loading...</p>
+    </div>
+  );
+}
+
 function AppShell() {
   const { user, profile, loading } = useAuth();
-
-  // FIX: Safety timeout — if loading takes more than 8 seconds, stop waiting.
-  // This prevents the infinite spinner on reload when Supabase is slow.
   const [timedOut, setTimedOut] = useState(false);
+
+  // Safety valve: never spin more than 8 seconds
   useEffect(() => {
     if (!loading) { setTimedOut(false); return; }
     const t = setTimeout(() => setTimedOut(true), 8000);
     return () => clearTimeout(t);
   }, [loading]);
 
-  if (loading && !timedOut) return (
-    <div style={{ minHeight: "100vh", background: "#020617", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
-      <div style={{ width: 32, height: 32, border: "3px solid #1e293b", borderTop: "3px solid #6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-      <style>{"@keyframes spin { to { transform: rotate(360deg); } }"}</style>
-      <p style={{ color: "#475569", fontSize: 13, margin: 0 }}>Loading your profile...</p>
-    </div>
-  );
+  // 1. Still waiting for Supabase AND haven't timed out yet → spinner
+  if (loading && !timedOut) return <Spinner />;
 
-  // If timed out and still no user, go to login
+  // 2. No user (not logged in, or timed out before session loaded) → login
   if (!user) return <LoginPage />;
+
+  // 3. User exists but profile still loading (rare: user loaded fast, profile slow) → spinner
+  if (loading && !timedOut) return <Spinner />;
+
+  // 4. User exists but hasn't completed setup → setup wizard
   if (!profile?.setupDone) return <SetupPage />;
 
+  // 5. Fully authenticated → main app
   return (
     <div style={{ minHeight: "100vh", background: "#020617", fontFamily: "'DM Sans', 'Segoe UI', sans-serif", paddingBottom: 72 }}>
       <style>{`
@@ -59,6 +69,8 @@ function AppShell() {
         ::-webkit-scrollbar-track { background: #020617; }
         ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 99px; }
       `}</style>
+
+      {/* Header */}
       <div style={{ background: "#0a0f1e", borderBottom: "1px solid #0f172a", padding: "13px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 100 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 20 }}>⚡</span>
@@ -66,18 +78,22 @@ function AppShell() {
         </div>
         <span style={{ fontSize: 12, color: "#475569" }}>{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
       </div>
+
+      {/* Pages */}
       <div style={{ maxWidth: 600, margin: "0 auto", padding: "18px 16px" }}>
         <Routes>
-          <Route path="/"          element={<DashboardPage />}  />
-          <Route path="/meal"      element={<LogMealPage />}    />
-          <Route path="/workout"   element={<WorkoutPage />}    />
-          <Route path="/activity"  element={<ActivityPage />}   />
-          <Route path="/insights"  element={<InsightsPage />}   />
-          <Route path="/history"   element={<HistoryPage />}    />
-          <Route path="/profile"   element={<ProfilePage />}    />
+          <Route path="/"          element={<DashboardPage />} />
+          <Route path="/meal"      element={<LogMealPage />}   />
+          <Route path="/workout"   element={<WorkoutPage />}   />
+          <Route path="/activity"  element={<ActivityPage />}  />
+          <Route path="/insights"  element={<InsightsPage />}  />
+          <Route path="/history"   element={<HistoryPage />}   />
+          <Route path="/profile"   element={<ProfilePage />}   />
           <Route path="*"          element={<Navigate to="/" />} />
         </Routes>
       </div>
+
+      {/* Bottom nav */}
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#0a0f1e", borderTop: "1px solid #0f172a", display: "flex", zIndex: 100, overflowX: "auto" }}>
         {NAV.map(({ to, icon, label }) => (
           <NavLink key={to} to={to} end={to === "/"}
