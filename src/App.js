@@ -68,6 +68,34 @@ function StayLoggedInPrompt({ onYes, onNo }) {
   );
 }
 
+function SessionRecovery({ onSignOut }) {
+  return (
+    <div style={{
+      minHeight: "100vh", background: "#020617",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "'DM Sans', 'Segoe UI', sans-serif", padding: 20,
+    }}>
+      <div style={{ width: "100%", maxWidth: 420, textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠</div>
+        <h2 style={{ color: "#f1f5f9", fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>Session needs refresh</h2>
+        <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 24px", lineHeight: 1.6 }}>
+          We found a saved session, but your profile could not be loaded correctly. Sign out and sign in again to continue safely.
+        </p>
+        <button
+          onClick={onSignOut}
+          style={{
+            width: "100%", padding: "14px 20px", borderRadius: 12, border: "none",
+            background: "linear-gradient(135deg, #6366f1, #818cf8)", color: "#fff",
+            fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          Sign out and continue
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppShell() {
   const { user, profile, loading, logout } = useAuth();
   const [timedOut, setTimedOut] = useState(false);
@@ -113,8 +141,13 @@ function AppShell() {
   // Profile still fetching
   if (!profile && !timedOut) return <Spinner />;
 
+  // Never show the app shell with a missing profile.
+  if (!profile) {
+    return <SessionRecovery onSignOut={logout} />;
+  }
+
   // Setup not complete
-  if (profile && !profile.setupDone) return <SetupPage />;
+  if (!profile.setupDone) return <SetupPage />;
 
   // All good — show app
   return (
