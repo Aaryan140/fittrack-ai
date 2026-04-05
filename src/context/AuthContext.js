@@ -53,8 +53,6 @@ export function AuthProvider({ children }) {
   };
 
   useEffect(() => {
-    // onAuthStateChange fires INITIAL_SESSION on mount — use that as single source of truth
-    // This avoids the race condition between getSession() and onAuthStateChange
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log("Auth event:", event);
@@ -71,7 +69,6 @@ export function AuthProvider({ children }) {
             setUser(session.user);
             await fetchProfile(session.user);
           } else {
-            // No session at all — not logged in
             setLoading(false);
           }
           return;
@@ -85,7 +82,6 @@ export function AuthProvider({ children }) {
           return;
         }
 
-        // TOKEN_REFRESHED etc — silently update user, don't re-fetch profile
         if (session?.user) {
           setUser(session.user);
         }
@@ -121,6 +117,7 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);
+    window.location.href = "/";
   };
 
   const saveProfile = async (data) => {
