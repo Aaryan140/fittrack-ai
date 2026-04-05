@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 const AuthContext = createContext(null);
+const STAY_LOGGED_IN_KEY = "fittrack_stay_logged_in";
 
 export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null);
@@ -23,7 +24,6 @@ export function AuthProvider({ children }) {
         return;
       }
 
-      // No profile yet — create one
       if (error?.code === "PGRST116" || !data) {
         const name = supaUser.user_metadata?.display_name
           || supaUser.user_metadata?.full_name
@@ -114,6 +114,7 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    localStorage.removeItem(STAY_LOGGED_IN_KEY);
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);

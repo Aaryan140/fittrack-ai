@@ -22,6 +22,8 @@ const NAV = [
   { to: "/profile",  icon: "👤", label: "Profile"  },
 ];
 
+const STAY_LOGGED_IN_KEY = "fittrack_stay_logged_in";
+
 function Spinner() {
   return (
     <div style={{ minHeight: "100vh", background: "#020617", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
@@ -32,9 +34,46 @@ function Spinner() {
   );
 }
 
+function StayLoggedInPrompt({ onYes, onNo }) {
+  return (
+    <div style={{
+      minHeight: "100vh", background: "#020617",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "'DM Sans', 'Segoe UI', sans-serif", padding: 20,
+    }}>
+      <style>{`@keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }`}</style>
+      <div style={{ width: "100%", maxWidth: 380, animation: "fadeUp 0.4s ease", textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>⚡</div>
+        <h2 style={{ color: "#f1f5f9", fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>Stay logged in?</h2>
+        <p style={{ color: "#475569", fontSize: 14, margin: "0 0 28px" }}>
+          You were logged in previously. Would you like to continue where you left off?
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={onYes} style={{
+            width: "100%", padding: "14px 20px", borderRadius: 12, border: "none",
+            background: "linear-gradient(135deg, #6366f1, #818cf8)", color: "#fff",
+            fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            Yes, keep me logged in
+          </button>
+          <button onClick={onNo} style={{
+            width: "100%", padding: "14px 20px", borderRadius: 12,
+            border: "1px solid #334155", background: "transparent", color: "#94a3b8",
+            fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+          }}>
+            No, sign me out
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppShell() {
-  const { user, profile, loading } = useAuth();
-  const [timedOut, setTimedOut] = useState(false);
+  const { user, profile, loading, logout } = useAuth();
+  const [timedOut, setTimedOut]         = useState(false);
+  const [stayChoice, setStayChoice]     = useState(null); // null | "yes" | "no"
+  const [choiceChecked, setChoiceChecked] = useState(false);
 
   // Safety valve: never spin more than 8 seconds
   useEffect(() => {
@@ -43,19 +82,58 @@ function AppShell() {
     return () => clearTimeout(t);
   }, [loading]);
 
-  // 1. Still waiting for Supabase AND haven't timed out yet → spinner
+  // Once auth resolves, check if we need to ask "stay logged in?"
+  useEffect(() => {
+    if (loading) return;
+    const saved = localStorage.getItem(STAY_LOGGED_IN_KEY);
+    if (user && saved === null) {
+      // User is logged in but we haven't asked yet → ask
+      setStayChoice("ask");
+    } else if (user && saved === "yes") {
+      setStayChoice("yes");
+    } else if (!user) {
+      setStayChoice("no");
+      localStorage.removeItem(STAY_LOGGED_IN_KEY);
+    }
+    setChoiceChecked(true);
+  }, [loading, user]);
+
+  // Still loading auth
   if (loading && !timedOut) return <Spinner />;
 
-  // 2. No user (not logged in, or timed out before session loaded) → login
+  // Auth resolved but we haven't evaluated choice yet
+  if (!choiceChecked) return <Spinner />;
+
+  // No user at all → login
   if (!user) return <LoginPage />;
 
-// 3. Profile not yet fetched → keep spinning
-if (!profile && !timedOut) return <Spinner />;
+  // User exists but we need to ask "stay logged in?"
+  if (stayChoice === "ask") {
+    return (
+      <StayLoggedInPrompt
+        onYes={() => {
+          localStorage.setItem(STAY_LOGGED_IN_KEY, "yes");
+          setStayChoice("yes");
+        }}
+        onNo={() => {
+          localStorage.setItem(STAY_LOGGED_IN_KEY, "no");
+          setStayChoice("no");
+          logout();
+        }}
+      />
+    );
+  }
 
-// 4. User exists but hasn't completed setup → setup wizard
-if (profile && !profile.setupDone) return <SetupPage />;
+  // User chose "no" → sign out → show login
+  if (stayChoice === "no") return <LoginPage />;
 
-  // 5. Fully authenticated → main app
+  // Profile still loading
+  if (!profile && !timedOut) return <Spinner />;
+
+  // Profile loaded but setup not done
+  if (profile && !profile.setupDone) return <SetupPage />;
+
+  // Fully authenticated → main app
   return (
     <div style={{ minHeight: "100vh", background: "#020617", fontFamily: "'DM Sans', 'Segoe UI', sans-serif", paddingBottom: 72 }}>
       <style>{`

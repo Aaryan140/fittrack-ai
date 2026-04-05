@@ -18,6 +18,7 @@ export default function LogMealPage() {
   const [result, setResult]             = useState(null);
   const [error, setError]               = useState("");
   const [saved, setSaved]               = useState(false);
+  const [saving, setSaving]             = useState(false);
   const fileRef = useRef();
 
   const handleFile = (e) => {
@@ -52,24 +53,31 @@ export default function LogMealPage() {
   };
 
   const save = async () => {
-    if (!result) return;
-    await updateDay(day => ({
-      ...day,
-      meals: [...(day.meals || []), {
-        ...result,
-        // image intentionally not saved — base64 is too large for Supabase rows
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }],
-      macros: {
-        calories: (day.macros?.calories || 0) + (result.macros?.calories || 0),
-        protein:  (day.macros?.protein  || 0) + (result.macros?.protein  || 0),
-        carbs:    (day.macros?.carbs    || 0) + (result.macros?.carbs    || 0),
-        fat:      (day.macros?.fat      || 0) + (result.macros?.fat      || 0),
-        fiber:    (day.macros?.fiber    || 0) + (result.macros?.fiber    || 0),
-      },
-    }));
-    setSaved(true);
-    setImageFile(null); setImagePreview(null); setBase64(null); setResult(null);
+    if (!result || saving) return;
+    setSaving(true);
+    try {
+      await updateDay(day => ({
+        ...day,
+        meals: [...(day.meals || []), {
+          ...result,
+          // base64 image intentionally excluded — too large for Supabase rows
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        }],
+        macros: {
+          calories: (day.macros?.calories || 0) + (result.macros?.calories || 0),
+          protein:  (day.macros?.protein  || 0) + (result.macros?.protein  || 0),
+          carbs:    (day.macros?.carbs    || 0) + (result.macros?.carbs    || 0),
+          fat:      (day.macros?.fat      || 0) + (result.macros?.fat      || 0),
+          fiber:    (day.macros?.fiber    || 0) + (result.macros?.fiber    || 0),
+        },
+      }));
+      setSaved(true);
+      setImageFile(null); setImagePreview(null); setBase64(null); setResult(null);
+    } catch (e) {
+      console.error("Save failed:", e);
+      setError("Could not save meal. Please try again.");
+    }
+    setSaving(false);
   };
 
   return (
@@ -78,7 +86,6 @@ export default function LogMealPage() {
       <p style={{ margin: "0 0 20px", color: "#475569", fontSize: 14 }}>Take or upload a photo — AI does the rest</p>
 
       <Card style={{ marginBottom: 16 }}>
-        {/* Drop zone */}
         <div
           onClick={() => fileRef.current?.click()}
           onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { const ev = { target: { files: [f] } }; handleFile(ev); } }}
@@ -113,7 +120,6 @@ export default function LogMealPage() {
         {error && <div style={{ marginTop: 12, color: "#f87171", fontSize: 13 }}>{error}</div>}
       </Card>
 
-      {/* Result */}
       {result && (
         <Card accent="#6366f133" style={{ animation: "fadeUp 0.4s ease" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
@@ -123,7 +129,6 @@ export default function LogMealPage() {
 
           <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 16px" }}>{result.description}</p>
 
-          {/* Macros grid */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 16 }}>
             {[
               ["Calories", result.macros?.calories, "kcal", "#818cf8"],
@@ -140,7 +145,6 @@ export default function LogMealPage() {
             ))}
           </div>
 
-          {/* Goal alignment */}
           <div style={{ background: "#1e293b", borderRadius: 12, padding: 12, marginBottom: 14, fontSize: 13, color: "#94a3b8" }}>
             💡 <span style={{ color: "#a5b4fc", fontWeight: 500 }}>Goal fit: </span>{result.goal_alignment}
           </div>
@@ -150,7 +154,9 @@ export default function LogMealPage() {
           )}
 
           <div style={{ display: "flex", gap: 10 }}>
-            <Btn onClick={save} variant="success" fullWidth>✓ Add to Today's Log</Btn>
+            <Btn onClick={save} disabled={saving} variant="success" fullWidth>
+              {saving ? "Saving..." : "✓ Add to Today's Log"}
+            </Btn>
             <Btn onClick={() => { setResult(null); setImagePreview(null); setImageFile(null); }} variant="ghost">Discard</Btn>
           </div>
         </Card>
