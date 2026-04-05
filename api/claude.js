@@ -1,5 +1,5 @@
 // api/claude.js — Vercel Serverless Function
-// Uses Google Gemini free tier
+// Uses Google Gemini free tier (gemini-2.5-flash + gemini-2.5-flash-lite)
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -35,9 +35,10 @@ export default async function handler(req, res) {
     }
   }
 
-  // gemini-2.0-flash is free, stable, widely available
-  // gemini-1.5-flash is the proven fallback
-  const models = ["gemini-2.0-flash", "gemini-1.5-flash"];
+  // Both are free tier as of April 2026
+  // gemini-2.5-flash-lite has highest RPD (1000/day) — best for free tier
+  // gemini-2.5-flash is fallback (250/day)
+  const models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
 
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -75,7 +76,7 @@ export default async function handler(req, res) {
           return res.status(200).json({ content: [{ type: "text", text }] });
         }
 
-        // Blocked or empty
+        // Blocked or empty response
         if (response.ok) {
           const reason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason || "unknown";
           console.warn(`${model} no text, reason: ${reason}`);
@@ -87,11 +88,13 @@ export default async function handler(req, res) {
         console.error(`${model} error ${errCode}: ${errMsg}`);
 
         if (errCode === 429) {
+          // Rate limited — wait then retry
           await new Promise(r => setTimeout(r, 3000));
-          continue; // retry same model
+          continue;
         }
 
-        break; // try next model
+        // Any other error — try next model
+        break;
 
       } catch (err) {
         console.error(`${model} attempt ${attempt + 1} exception:`, err.message);
