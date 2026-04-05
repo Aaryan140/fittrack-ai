@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
-const DB_TIMEOUT_MS = 12000;
+const DB_TIMEOUT_MS = 20000;
+const PENDING_DAY_PREFIX = "fittrack_pending_day:";
 
 export function getTodayKey() {
-  return new Date().toISOString().split("T")[0];
+  return formatLocalDateKey(new Date());
 }
 
 const emptyDay = {
@@ -22,6 +23,25 @@ export function useDay(dateKey) {
   const [dayData, setDayData] = useState(emptyDay);
   const [loading, setLoading] = useState(true);
 
+  const flushPendingDay = useCallback(async () => {
+    if (!user) return false;
+
+    const pendingPayload = readPendingDay(user.id, dateKey);
+    if (!pendingPayload) return false;
+
+    try {
+      await writeDayRow(user.id, dateKey, pendingPayload);
+      clearPendingDay(user.id, dateKey);
+      setDayData(pendingPayload);
+      return true;
+    } catch (error) {
+      if (!isTransientSaveError(error)) {
+        console.error("flushPendingDay error:", error);
+      }
+      return false;
+    }
+  }, [user?.id, dateKey]);
+
   useEffect(() => {
     if (!user) { setLoading(false); return; }
     const load = async () => {
@@ -35,15 +55,32 @@ export function useDay(dateKey) {
           .maybeSingle();
 
         if (error) console.error("useDay load error:", error);
-        setDayData(data?.payload || emptyDay);
+        const pendingPayload = readPendingDay(user.id, dateKey);
+        setDayData(pendingPayload || data?.payload || emptyDay);
       } catch (e) {
         console.error("useDay exception:", e);
-        setDayData(emptyDay);
+        const pendingPayload = readPendingDay(user.id, dateKey);
+        setDayData(pendingPayload || emptyDay);
       }
       setLoading(false);
     };
     load();
   }, [user?.id, dateKey]);
+
+  useEffect(() => {
+    flushPendingDay().catch(() => {});
+  }, [flushPendingDay]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const handleOnline = () => {
+      flushPendingDay().catch(() => {});
+    };
+
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, [user?.id, flushPendingDay]);
 
   const updateDay = useCallback(async (updater) => {
     if (!user) throw new Error("Not logged in");
@@ -55,50 +92,17 @@ export function useDay(dateKey) {
     setDayData(updated);
 
     try {
-      // First try upsert with onConflict
-      const row = {
-        user_id:    user.id,
-        date:       dateKey,
-        payload:    updated,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await withTimeout(
-        supabase.from("days").upsert(row, { onConflict: "user_id,date" }),
-        "Saving data took too long. Please try again."
-      );
-
-      if (error) {
-        // If upsert fails (e.g. no unique constraint), try insert then update
-        console.warn("upsert failed, trying insert/update fallback:", error.message);
-
-        const { error: insertError } = await withTimeout(
-          supabase.from("days").insert(row),
-          "Creating the daily log took too long. Please try again."
-        );
-
-        if (insertError) {
-          // Row exists, do a plain update
-          const { error: updateError } = await withTimeout(
-            supabase
-              .from("days")
-              .update({ payload: updated, updated_at: new Date().toISOString() })
-              .eq("user_id", user.id)
-              .eq("date", dateKey),
-            "Updating the daily log took too long. Please try again."
-          );
-
-          if (updateError) {
-            // Revert optimistic update on real failure
-            setDayData(current);
-            throw new Error(updateError.message);
-          }
-        }
-      }
+      await writeDayRow(user.id, dateKey, updated);
+      clearPendingDay(user.id, dateKey);
+      return { pending: false };
     } catch (e) {
-      // Revert optimistic update
+      if (isTransientSaveError(e)) {
+        savePendingDay(user.id, dateKey, updated);
+        return { pending: true };
+      }
+
       setDayData(current);
-      throw e; // FIX: re-throw so WorkoutPage/MealPage catch blocks actually fire
+      throw e;
     }
   }, [user?.id, dateKey, dayData]);
 
@@ -143,4 +147,104 @@ function withTimeout(promise, message) {
       setTimeout(() => reject(new Error(message)), DB_TIMEOUT_MS);
     }),
   ]);
+}
+
+async function writeDayRow(userId, dateKey, payload) {
+  const row = {
+    user_id: userId,
+    date: dateKey,
+    payload,
+    updated_at: new Date().toISOString(),
+  };
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const { error } = await withTimeout(
+        supabase.from("days").upsert(row, { onConflict: "user_id,date" }),
+        "Saving data took too long. Please try again."
+      );
+
+      if (!error) return;
+
+      console.warn("upsert failed, trying insert/update fallback:", error.message);
+
+      const { error: insertError } = await withTimeout(
+        supabase.from("days").insert(row),
+        "Creating the daily log took too long. Please try again."
+      );
+
+      if (!insertError) return;
+
+      const { error: updateError } = await withTimeout(
+        supabase
+          .from("days")
+          .update({ payload, updated_at: row.updated_at })
+          .eq("user_id", userId)
+          .eq("date", dateKey),
+        "Updating the daily log took too long. Please try again."
+      );
+
+      if (!updateError) return;
+
+      lastError = new Error(updateError.message);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Could not save your data right now.");
+}
+
+function isTransientSaveError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return !navigator.onLine
+    || message.includes("too long")
+    || message.includes("failed to fetch")
+    || message.includes("networkerror")
+    || message.includes("network request failed");
+}
+
+function pendingDayKey(userId, dateKey) {
+  return `${PENDING_DAY_PREFIX}${userId}:${dateKey}`;
+}
+
+function readPendingDay(userId, dateKey) {
+  if (!userId) return null;
+
+  try {
+    const raw = localStorage.getItem(pendingDayKey(userId, dateKey));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed?.payload || null;
+  } catch {
+    return null;
+  }
+}
+
+function savePendingDay(userId, dateKey, payload) {
+  try {
+    localStorage.setItem(
+      pendingDayKey(userId, dateKey),
+      JSON.stringify({ payload, savedAt: new Date().toISOString() })
+    );
+  } catch (error) {
+    console.warn("savePendingDay error:", error);
+  }
+}
+
+function clearPendingDay(userId, dateKey) {
+  try {
+    localStorage.removeItem(pendingDayKey(userId, dateKey));
+  } catch (error) {
+    console.warn("clearPendingDay error:", error);
+  }
+}
+
+function formatLocalDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
