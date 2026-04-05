@@ -11,13 +11,13 @@ export default function LogMealPage() {
   const { updateDay } = useDay(getTodayKey());
   const targets = calcTargets(profile || {});
 
-  const [imageFile, setImageFile]     = useState(null);
+  const [imageFile, setImageFile]       = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [base64, setBase64]           = useState(null);
-  const [analyzing, setAnalyzing]     = useState(false);
-  const [result, setResult]           = useState(null);
-  const [error, setError]             = useState("");
-  const [saved, setSaved]             = useState(false);
+  const [base64, setBase64]             = useState(null);
+  const [analyzing, setAnalyzing]       = useState(false);
+  const [result, setResult]             = useState(null);
+  const [error, setError]               = useState("");
+  const [saved, setSaved]               = useState(false);
   const fileRef = useRef();
 
   const handleFile = (e) => {
@@ -57,7 +57,7 @@ export default function LogMealPage() {
       ...day,
       meals: [...(day.meals || []), {
         ...result,
-        image: imagePreview,
+        // image intentionally not saved — base64 is too large for Supabase rows
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       }],
       macros: {
