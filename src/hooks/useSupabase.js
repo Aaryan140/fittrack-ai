@@ -25,7 +25,6 @@ export function useDay(dateKey) {
     const load = async () => {
       setLoading(true);
       try {
-        // Use maybeSingle() instead of single() — doesn't throw on 0 rows
         const { data, error } = await supabase
           .from("days")
           .select("*")
@@ -33,7 +32,7 @@ export function useDay(dateKey) {
           .eq("date", dateKey)
           .maybeSingle();
 
-        if (error) console.error("useDay error:", error);
+        if (error) console.error("useDay load error:", error);
         setDayData(data?.payload || emptyDay);
       } catch (e) {
         console.error("useDay exception:", e);
@@ -45,21 +44,57 @@ export function useDay(dateKey) {
   }, [user?.id, dateKey]);
 
   const updateDay = useCallback(async (updater) => {
-    if (!user) return;
+    if (!user) throw new Error("Not logged in");
+
     const current = dayData || emptyDay;
     const updated = updater(current);
-    try {
-      const { error } = await supabase.from("days").upsert({
-        user_id:    user.id,
-        date:       dateKey,
-        payload:    updated,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id,date" });
-      if (error) console.error("updateDay error:", error);
-    } catch (e) {
-      console.error("updateDay exception:", e);
-    }
+
+    // Optimistically update local state immediately so UI feels fast
     setDayData(updated);
+
+    try {
+      // First try upsert with onConflict
+      const { error } = await supabase.from("days").upsert(
+        {
+          user_id:    user.id,
+          date:       dateKey,
+          payload:    updated,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,date" }
+      );
+
+      if (error) {
+        // If upsert fails (e.g. no unique constraint), try insert then update
+        console.warn("upsert failed, trying insert/update fallback:", error.message);
+
+        const { error: insertError } = await supabase.from("days").insert({
+          user_id:    user.id,
+          date:       dateKey,
+          payload:    updated,
+          updated_at: new Date().toISOString(),
+        });
+
+        if (insertError) {
+          // Row exists, do a plain update
+          const { error: updateError } = await supabase
+            .from("days")
+            .update({ payload: updated, updated_at: new Date().toISOString() })
+            .eq("user_id", user.id)
+            .eq("date", dateKey);
+
+          if (updateError) {
+            // Revert optimistic update on real failure
+            setDayData(current);
+            throw new Error(updateError.message);
+          }
+        }
+      }
+    } catch (e) {
+      // Revert optimistic update
+      setDayData(current);
+      throw e; // FIX: re-throw so WorkoutPage/MealPage catch blocks actually fire
+    }
   }, [user?.id, dateKey, dayData]);
 
   return { dayData, loading, updateDay };

@@ -1,6 +1,7 @@
 // src/App.js
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { useEffect, useState } from "react";
 import LoginPage      from "./pages/LoginPage";
 import SetupPage      from "./pages/SetupPage";
 import DashboardPage  from "./pages/DashboardPage";
@@ -24,14 +25,25 @@ const NAV = [
 function AppShell() {
   const { user, profile, loading } = useAuth();
 
-  if (loading) return (
-    <div style={{ minHeight: "100vh", background: "#020617", display: "flex", alignItems: "center", justifyContent: "center" }}>
+  // FIX: Safety timeout — if loading takes more than 8 seconds, stop waiting.
+  // This prevents the infinite spinner on reload when Supabase is slow.
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!loading) { setTimedOut(false); return; }
+    const t = setTimeout(() => setTimedOut(true), 8000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
+  if (loading && !timedOut) return (
+    <div style={{ minHeight: "100vh", background: "#020617", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
       <div style={{ width: 32, height: 32, border: "3px solid #1e293b", borderTop: "3px solid #6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
       <style>{"@keyframes spin { to { transform: rotate(360deg); } }"}</style>
+      <p style={{ color: "#475569", fontSize: 13, margin: 0 }}>Loading your profile...</p>
     </div>
   );
 
-  if (!user)               return <LoginPage />;
+  // If timed out and still no user, go to login
+  if (!user) return <LoginPage />;
   if (!profile?.setupDone) return <SetupPage />;
 
   return (
