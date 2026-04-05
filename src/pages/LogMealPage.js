@@ -34,6 +34,10 @@ export default function LogMealPage() {
   };
 
   const analyze = async () => {
+    if (!imageFile || !base64) {
+      setError("Please upload a meal photo first.");
+      return;
+    }
     setAnalyzing(true); setError(""); setResult(null);
     try {
       const res = await analyzeFood({
@@ -42,7 +46,8 @@ export default function LogMealPage() {
       });
       setResult(res);
     } catch (e) {
-      setError("Could not analyze image. Please try again.");
+      console.error("Meal analysis failed:", e);
+      setError(e?.message || "Could not analyze image. Please try again.");
     }
     setAnalyzing(false);
   };

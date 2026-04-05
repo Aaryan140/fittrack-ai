@@ -39,6 +39,7 @@ export default async function handler(req, res) {
   // gemini-2.5-flash-lite has highest RPD (1000/day) — best for free tier
   // gemini-2.5-flash is fallback (250/day)
   const models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+  let lastError = "AI service temporarily unavailable. Please try again in a moment.";
 
   for (const model of models) {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -80,12 +81,14 @@ export default async function handler(req, res) {
         if (response.ok) {
           const reason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason || "unknown";
           console.warn(`${model} no text, reason: ${reason}`);
+          lastError = `${model}: no response text returned (${reason})`;
           break; // try next model
         }
 
         const errCode = data.error?.code;
         const errMsg  = data.error?.message || "Unknown error";
         console.error(`${model} error ${errCode}: ${errMsg}`);
+        lastError = `${model}: ${errMsg}`;
 
         if (errCode === 429) {
           // Rate limited — wait then retry
@@ -98,10 +101,11 @@ export default async function handler(req, res) {
 
       } catch (err) {
         console.error(`${model} attempt ${attempt + 1} exception:`, err.message);
+        lastError = `${model}: ${err.message}`;
         if (attempt === 0) continue;
       }
     }
   }
 
-  return res.status(503).json({ error: "AI service temporarily unavailable. Please try again in a moment." });
+  return res.status(503).json({ error: lastError });
 }
